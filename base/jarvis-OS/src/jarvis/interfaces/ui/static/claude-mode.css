@@ -1,0 +1,200 @@
+﻿/* claude-mode.css — Mode Claude : reskin de l'interface Jarvis aux couleurs et
+   proportions de l'application Claude.
+
+   Les valeurs ci-dessous sont les tokens de design relevés dans le CSS de
+   l'application Claude installee (v1.24012.9, lecture seule) : echelle de gris,
+   bleu d'accent, tailles de police CDS, rayons. Rien n'est devine.
+
+   Deux reserves assumees :
+   - Les polices « Anthropic Sans / Serif / Mono » sont proprietaires et livrees
+     dans le paquet de l'app : elles ne sont PAS copiees ici. On utilise la pile
+     de repli que le CSS d'origine declare lui-meme (system-ui, Segoe UI...).
+   - Les modes « chat » et « cowork » ne sont pas repliques (choix du Maitre).
+
+   Actif uniquement sous html.claude-mode — pilote par claude-mode.js. */
+
+html.claude-mode {
+  /* ── Echelle de gris (relevee : --_gray-*) ── */
+  --_gray-0:   0 0% 100%;
+  --_gray-10:  60 14% 99%;
+  --_gray-20:  60 14% 97%;
+  --_gray-40:  60 11% 95%;
+  --_gray-100: 53 12% 87%;
+  --_gray-200: 55 9% 74%;
+  --_gray-300: 55 6% 63%;
+  --_gray-400: 45 3% 52%;
+  --_gray-500: 40 3% 42%;
+  --_gray-700: 60 3% 21%;
+  --_gray-800: 60 2% 12%;
+  --_gray-830: 60 2% 10%;
+  --_gray-850: 0 0% 8%;
+  --_gray-860: 0 0% 7%;
+  --_gray-890: 0 0% 5%;
+  --_gray-900: 0 0% 4%;
+
+  /* ── Marque et accent (relevees) ── */
+  --_brand-clay: 14.8 63.1% 59.6%;
+  --_blue-400:   213 77% 56%;
+  --_blue-450:   213 68% 50%;
+
+  /* ── Surfaces, mode sombre (l'app en mode sombre) ── */
+  --bg-000: var(--_gray-830);
+  --bg-100: var(--_gray-850);
+  --bg-200: var(--_gray-860);
+  --bg-300: var(--_gray-890);
+  --bg-400: var(--_gray-900);
+
+  --text-100: 48 33.3% 97.1%;
+  --text-200: 50 9% 73.7%;
+  --text-400: 48 4.8% 59.2%;
+
+  /* ── Typographie (tokens CDS releves) ── */
+  --cds-font-sans: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --cds-font-mono-ui: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --cds-font-size-caption:  12px;
+  --cds-font-size-footnote: 13px;
+  --cds-font-size-body:     14px;
+  --cds-font-size-heading:  15px;
+  --cds-font-size-title:    20px;
+  --cds-radius: 8px;
+
+  /* ── Remappage sur les variables existantes de Jarvis ──
+     Le reste de l'UI continue de lire --bg-1/--fg-1/etc. : on les redirige
+     plutot que de reecrire chaque regle. */
+  --bg-1: hsl(var(--bg-100));
+  --bg-2: hsl(var(--bg-200));
+  --bg-3: hsl(var(--bg-300));
+  --fg-1: hsl(var(--text-100));
+  --fg-2: hsl(var(--text-200));
+  --fg-3: hsl(var(--text-400));
+  --line-1: hsl(var(--_gray-700) / .5);
+  --line-2: hsl(var(--_gray-700) / .8);
+
+  --mono: var(--cds-font-mono-ui);
+
+  /* ── Couleurs COMPLETES (valeur entiere, pas un triplet a envelopper) ──
+     Un raccourci comme `background: hsl(var(--x) / .95)` devient une
+     substitution differee et ne resout pas de facon fiable ; on garde donc des
+     valeurs completes utilisees avec des proprietes longues. */
+  --cm-surface:       hsl(0 0% 7% / .95);
+  --cm-surface-solid: hsl(0 0% 7%);
+  --cm-hover:         hsl(60 2% 10%);
+  --cm-hover-strong:  hsl(60 2% 12%);
+  --cm-line:          hsl(60 3% 21% / .6);
+  --cm-line-soft:     hsl(60 3% 21% / .5);
+  --cm-text:          hsl(48 33.3% 97.1%);
+  --cm-text-dim:      hsl(48 4.8% 59.2%);
+  --cm-selected:      hsl(213 68% 50% / .18);
+  --cm-brand:         hsl(14.8 63.1% 59.6%);
+  --cm-page:          hsl(0 0% 5%);
+
+  /* Largeur du panneau : source unique, lue aussi par la poignée. */
+  --cm-panel-w: 300px;
+}
+
+html.claude-mode body {
+  background-color: var(--cm-page);
+  color: var(--cm-text);
+  font-family: var(--cds-font-sans);
+  font-size: var(--cds-font-size-body);
+}
+
+html.claude-mode .card,
+html.claude-mode .ghost-sec {
+  border-radius: var(--cds-radius);
+}
+
+/* ══════════════ Projets de conversations ══════════════
+   01/08/2026 : la glissiere laterale (#cm-panel + #cm-handle) est SUPPRIMEE.
+   Les projets sont desormais rendus dans le menu des conversations
+   (Capacites > Fils) — capabilities.js reutilise les classes .cm-* ci-dessous.
+   Garde-fou : si une version anterieure a laisse un residu dans le DOM, on le
+   masque. */
+#cm-handle, #cm-panel { display: none !important; }
+
+.cm-hd {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--cm-line-soft);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.cm-hd h2 {
+  font-size: var(--cds-font-size-heading);
+  font-weight: 600;
+  color: var(--cm-text);
+  margin: 0;
+}
+.cm-new {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: none; cursor: pointer;
+  color: var(--cm-text-dim); font-size: 18px; line-height: 1;
+  padding: 4px 8px; border-radius: var(--cds-radius);
+  transition: background .15s, color .15s;
+}
+.cm-new:hover { background-color: var(--cm-hover-strong); color: var(--cm-text); }
+
+.cm-list { flex: 1; overflow-y: auto; padding: 8px; }
+
+.cm-sec {
+  font-size: var(--cds-font-size-caption);
+  color: var(--cm-text-dim);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 12px 8px 6px;
+}
+
+.cm-proj {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--cds-radius);
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.cm-proj:hover { background-color: var(--cm-hover-strong); }
+.cm-proj.active { background-color: var(--cm-selected); }
+
+.cm-proj-body { flex: 1; min-width: 0; }
+.cm-proj-title {
+  font-size: var(--cds-font-size-body);
+  color: var(--cm-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cm-proj-meta {
+  font-size: var(--cds-font-size-caption);
+  color: var(--cm-text-dim);
+  margin-top: 2px;
+}
+
+.cm-pin {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: none; cursor: pointer;
+  color: var(--cm-text-dim); opacity: 0;
+  padding: 2px; border-radius: 4px; flex-shrink: 0;
+  transition: opacity .15s, color .15s;
+}
+.cm-proj:hover .cm-pin { opacity: .7; }
+.cm-pin:hover { opacity: 1 !important; color: var(--cm-brand); }
+.cm-pin.pinned { opacity: 1; color: var(--cm-brand); }
+
+.cm-empty {
+  color: var(--cm-text-dim);
+  font-size: var(--cds-font-size-footnote);
+  padding: 24px 12px;
+  text-align: center;
+}
+
+/* Saisie en ligne pour la création d'un projet (remplace window.prompt). */
+.cm-create { padding: 4px 2px 8px; }
+.cm-create input {
+  width: 100%;
+  appearance: none; -webkit-appearance: none;
+  background-color: var(--cm-hover-strong);
+  border: 1px solid var(--cm-line);
+  border-radius: var(--cds-radius);
+  padding: 8px 10px;
+  color: var(--cm-text);
+  font-family: var(--cds-font-sans);
+  font-size: var(--cds-font-size-body);
+  outline: none;
+}
+.cm-create input:focus { border-color: var(--cm-brand); }
+.cm-create input::placeholder { color: var(--cm-text-dim); }

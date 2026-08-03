@@ -1,0 +1,13 @@
+{
+  "agent": "Miku",
+  "model": "claude-sonnet-5",
+  "modelFallback": "claude-opus-5",
+  "modeMythos": true,
+  "persona": "config/persona/miku.md",
+  "ui": { "port": 4980, "openBrowser": true },
+  "memory": {
+    "brute": "memory/brute",
+    "travaillee": "memory/travaillee"
+  },
+  "logs": "logs"
+}

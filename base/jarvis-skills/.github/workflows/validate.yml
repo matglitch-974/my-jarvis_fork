@@ -1,0 +1,60 @@
+name: Validation du catalogue Jarvis
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  validate:
+    name: Valider manifestes + index + sécurité
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configuration Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installation des dépendances
+        run: pip install jsonschema pyyaml yamllint
+
+      # ── Étape 1 : lint YAML ──────────────────────────────────────────────
+      - name: Lint YAML (yamllint)
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}}}" \
+            skills/ views/ .github/workflows/
+        continue-on-error: false
+
+      # ── Étape 2 : lint JSON ──────────────────────────────────────────────
+      - name: Lint JSON
+        run: |
+          python - <<'EOF'
+          import json, sys, pathlib
+          ok = True
+          for f in list(pathlib.Path("schemas").glob("*.json")) + [pathlib.Path("index.json")]:
+              try:
+                  json.loads(f.read_text())
+              except json.JSONDecodeError as e:
+                  print(f"✗ {f}: {e}", file=sys.stderr)
+                  ok = False
+          sys.exit(0 if ok else 1)
+          EOF
+
+      # ── Étape 3 : validation structurelle des manifestes ─────────────────
+      # Zéro import ni exécution du code de contribution.
+      - name: Validation des manifestes (validate_catalog.py --all)
+        run: python scripts/validate_catalog.py --all
+
+      # ── Étape 4 : cohérence index.json ───────────────────────────────────
+      # Échoue si index.json n'a pas été régénéré après modification d'un manifeste.
+      - name: Cohérence index.json (build_index.py --check)
+        run: python scripts/build_index.py --check
+
+      # ── Étape 5 : analyse de sécurité ────────────────────────────────────
+      # AST statique — jamais d'exécution du code des contributions.
+      - name: Analyse de sécurité (scan_security.py)
+        run: python scripts/scan_security.py

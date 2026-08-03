@@ -1,0 +1,31 @@
+My Jarvis — fork de jarvis-OS motorisé par le Claude Agent SDK (état 17/07/2026)
+=================================================================================
+
+LANCER : Menu Démarrer -> « My Jarvis » (ou Jarvis\native\My Jarvis.exe).
+La fenêtre s'ouvre instantanément, démarre seule les services EN CACHÉ
+(aucune fenêtre de commande), puis affiche l'interface. À chaud : < 1 s.
+Épingler à la barre des tâches : clic droit sur la fenêtre ouverte -> Épingler.
+
+Arborescence :
+  Jarvis\native\        My Jarvis.exe (fenêtre native WebView2, barre de titre
+                        bleu nuit, orchestrateur des services) + DLL WebView2
+  Jarvis\engine\        sidecar Node : Claude Agent SDK par ABONNEMENT (port 4981)
+  Jarvis\Adjunct\       agents : Miku (active, persona greffée), Cortana, Shiki,
+                        Clippy, Sherlock, Kiyotaka — squelettes + TODO
+  base\jarvis-OS\       le fork complet (serveur FastAPI port 8000, mémoire,
+                        gouvernance, proactif) ; persona Miku dans
+                        prompts\system_static.md ; réglages dans .env
+  base\jarvis-skills\   catalogue forké : skills, presets, views
+  config\               .claude_oauth_token (jeton abonnement ~1 an), personas
+  memory\, logs\, data\ mémoire MyJarvis, journaux (serveur.log, sidecar-*.log)
+
+Outils :
+  Connexion-abonnement.cmd   refaire le jeton (expiration ~1 an)
+  Desintegration.cmd         retirer les raccourcis Windows (réversible)
+  MyJarvis.cmd               équivalent double-clic de l'exe
+  Jarvis.cmd / Serveur-jarvisOS.cmd / MyJarvis.ps1   lancement manuel de
+                             secours, fenêtres visibles (diagnostic)
+
+Logo : anneau bleu neutre (#2b4d7b). Bandeaux : bleu nuit rgb(10,20,48).
+Dossier portable : après un déménagement, relancer l'exe puis MyJarvis.ps1
+une fois pour réinscrire le raccourci Menu Démarrer au nouvel emplacement.

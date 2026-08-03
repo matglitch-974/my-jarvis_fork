@@ -1,0 +1,53 @@
+# ── Secrets et identifiants — ne JAMAIS publier ──
+.env
+.env.*
+!.env.example
+config/.claude_oauth_token
+*.pem
+*.key
+secrets*
+
+# ── Données personnelles ──
+memory/
+logs/
+# Fond d'écran choisi par l'utilisateur : c'est sa photo, elle ne se publie pas.
+base/jarvis-OS/config/wallpaper.*
+# Installateur compilé : on publie la recette (Installateur.cs + miku_scripts),
+# pas le binaire — invérifiable pour qui clone, et signalé par les antivirus.
+# « My Jarvis.exe », lui, reste suivi : il l'était déjà, c'est un choix assumé.
+Jarvis/native/Installer My Jarvis.exe
+Jarvis/native/*.dll
+base/jarvis-OS/memory_data/
+base/jarvis-OS/workspace/
+base/jarvis-OS/skills_data/
+data/
+
+# ── Environnements et dépendances ──
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ── Modèles téléchargés (lourds, régénérables) ──
+base/jarvis-OS/.models/
+*.onnx
+*.vhdx
+
+# ── Médias lourds (> 1 Mo) ──
+# Exclus faute de pouvoir les téléverser : la connexion de cette machine casse
+# au-delà d'environ 4 Mo par requête vers l'API GitHub. Ils restent dans le dépôt
+# amont jarvis-OS. Voir la note « Fichiers absents » du README.
+base/jarvis-OS/JARVISINTERFACEGITHUB.png
+base/jarvis-OS/images/infog1.png
+base/jarvis-OS/src/jarvis/interfaces/ui/static/references/jarvis_ui_reference.png
+base/jarvis-OS/src/jarvis/interfaces/ui/static/sfx/particles.wav
+base/jarvis-OS/src/jarvis/interfaces/ui/static/sfx/scan.wav
+base/jarvis-OS/src/jarvis/interfaces/ui/static/earth-blue-marble.jpg
+base/jarvis-skills/docs/preview.png
+
+# ── Divers ──
+*.log
+.DS_Store
+Thumbs.db
