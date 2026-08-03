@@ -30,6 +30,26 @@ function Note([string]$m) {
     Add-Content -Path $journal -Value $ligne -Encoding utf8
 }
 
+# PowerShell 5.1 : "Set-Content -Encoding utf8" ecrit un BOM, et l'API GitHub
+# repond alors 400 "Problems parsing JSON". Piege verifie le 02/08/2026 : les
+# blobs passaient (ecrits en ascii), l'arbre et le commit non.
+function EcrireJson([string]$chemin, $objet, [int]$profondeur = 5) {
+    $json = $objet | ConvertTo-Json -Depth $profondeur
+    [IO.File]::WriteAllText($chemin, $json, (New-Object Text.UTF8Encoding($false)))
+}
+
+# Tout appel a l'API doit etre verifie : "gh" n'echoue pas en levant une
+# exception, il rend un code de sortie. Sans ce controle le script annoncait
+# une publication reussie alors que rien n'avait bouge.
+function AppelApi([string]$route, [string]$methode, [string]$corps) {
+    $sortie = & gh api $route -X $methode --input $corps 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Note "  reponse de GitHub : $($sortie.Trim())"
+        throw "Appel API en echec ($methode $route)"
+    }
+    return ($sortie | ConvertFrom-Json)
+}
+
 Note "=== Publication de $Repo (branche $Branch) ==="
 
 # ── 1. Inventaire du HEAD ────────────────────────────────────────────────
@@ -43,11 +63,17 @@ git ls-tree -r HEAD | ForEach-Object {
 Note ("{0} fichiers dans le HEAD local" -f $entrees.Count)
 
 # ── 2. Etat repris ───────────────────────────────────────────────────────
+#
+# La cle est le SHA du blob GIT, pas le chemin : git et GitHub calculent le
+# meme SHA pour un contenu donne. Un fichier inchange d'une publication a
+# l'autre est donc reconnu sans etre renvoye, et un fichier deplace non plus.
+# Ce fichier d'etat n'est jamais supprime : c'est lui qui rend les envois
+# suivants quasi instantanes.
 $carte = @{}
 if (Test-Path $etatFichier) {
     (Get-Content $etatFichier -Raw -Encoding utf8 | ConvertFrom-Json).PSObject.Properties |
         ForEach-Object { $carte[$_.Name] = $_.Value }
-    Note ("reprise : {0} blobs deja televerses" -f $carte.Count)
+    Note ("reprise : {0} blobs deja connus de GitHub" -f $carte.Count)
 }
 
 function SauverEtat {
@@ -57,7 +83,8 @@ function SauverEtat {
 
 # ── 3. Televersement des blobs ───────────────────────────────────────────
 $i = 0
-$aFaire = $entrees | Where-Object { -not $carte.ContainsKey($_.chemin) }
+$aFaire = $entrees | Where-Object { -not $carte.ContainsKey($_.sha) } |
+          Sort-Object sha -Unique
 Note ("{0} blobs a televerser" -f @($aFaire).Count)
 
 foreach ($e in $aFaire) {
@@ -84,7 +111,7 @@ foreach ($e in $aFaire) {
     }
     if (-not $reponse) { throw "Blob irrecuperable : $($e.chemin)" }
 
-    $carte[$e.chemin] = ($reponse | ConvertFrom-Json).sha
+    $carte[$e.sha] = ($reponse | ConvertFrom-Json).sha
     if ($i % 20 -eq 0) {
         SauverEtat
         Note ("  {0}/{1} blobs" -f $i, @($aFaire).Count)
@@ -102,32 +129,44 @@ $tranche = 120
 for ($d = 0; $d -lt $entrees.Count; $d += $tranche) {
     $lot = $entrees[$d..([Math]::Min($d + $tranche - 1, $entrees.Count - 1))]
     $objet = @{ tree = @($lot | ForEach-Object {
-        @{ path = $_.chemin; mode = $_.mode; type = "blob"; sha = $carte[$_.chemin] }
+        @{ path = $_.chemin; mode = $_.mode; type = "blob"; sha = $carte[$_.sha] }
     }) }
     if ($base) { $objet["base_tree"] = $base }
 
     $corps = Join-Path $env:TEMP "miku-tree.json"
-    ($objet | ConvertTo-Json -Depth 5) | Set-Content -Path $corps -Encoding utf8
-    $rep = gh api "repos/$Repo/git/trees" -X POST --input $corps | Out-String
-    $base = ($rep | ConvertFrom-Json).sha
+    EcrireJson $corps $objet 5
+    $base = (AppelApi "repos/$Repo/git/trees" "POST" $corps).sha
+    if (-not $base) { throw "L'arbre n'a pas renvoye de SHA." }
     Note ("  arbre : {0}/{1} entrees" -f ([Math]::Min($d + $tranche, $entrees.Count)), $entrees.Count)
 }
 Note "arbre complet : $base"
 
 # ── 5. Commit et deplacement de la reference ─────────────────────────────
-$parent = (gh api "repos/$Repo/git/ref/heads/$Branch" --jq ".object.sha").Trim()
+$parent = ((& gh api "repos/$Repo/git/ref/heads/$Branch" | Out-String | ConvertFrom-Json).object.sha)
+if (-not $parent) { throw "Impossible de lire la reference distante $Branch." }
 $message = (git log -1 --pretty=%B) -join "`n"
 
 $corps = Join-Path $env:TEMP "miku-commit.json"
-(@{ message = $message; tree = $base; parents = @($parent) } | ConvertTo-Json -Depth 3) |
-    Set-Content -Path $corps -Encoding utf8
-$commit = (gh api "repos/$Repo/git/commits" -X POST --input $corps | ConvertFrom-Json).sha
+EcrireJson $corps @{ message = $message; tree = $base; parents = @($parent) } 3
+$commit = (AppelApi "repos/$Repo/git/commits" "POST" $corps).sha
+if (-not $commit) { throw "Le commit n'a pas renvoye de SHA." }
 Note "commit cree : $commit"
 
 $corps = Join-Path $env:TEMP "miku-ref.json"
-(@{ sha = $commit } | ConvertTo-Json) | Set-Content -Path $corps -Encoding utf8
-gh api "repos/$Repo/git/refs/heads/$Branch" -X PATCH --input $corps | Out-Null
+EcrireJson $corps @{ sha = $commit } 2
+$null = AppelApi "repos/$Repo/git/refs/heads/$Branch" "PATCH" $corps
 Note "reference $Branch deplacee sur $commit"
 
-Remove-Item $etatFichier -ErrorAction SilentlyContinue
+# Verification de l'etat REEL : le journal ne fait pas foi, seul le depot compte.
+$verif = & gh api "repos/$Repo/git/ref/heads/$Branch" | Out-String | ConvertFrom-Json
+if ($verif.object.sha -ne $commit) {
+    throw "Verification echouee : la reference distante vaut $($verif.object.sha), pas $commit."
+}
+$nb = (& gh api "repos/$Repo/git/trees/$Branch`?recursive=1" | Out-String | ConvertFrom-Json).tree |
+      Where-Object { $_.type -eq "blob" } | Measure-Object | Select-Object -ExpandProperty Count
+Note "verifie : $nb fichiers presents sur $Branch"
+
+# Le fichier d'etat est CONSERVE a dessein : il fait des publications suivantes
+# une affaire de secondes, seuls les fichiers reellement modifies partant.
+Note ("etat conserve ({0} blobs connus) : {1}" -f $carte.Count, $etatFichier)
 Note "=== PUBLICATION TERMINEE ==="
