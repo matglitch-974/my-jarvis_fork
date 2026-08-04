@@ -1445,37 +1445,50 @@ html.no-brand .home-signature .clock-row { margin-top: 34px; }
 }
 .home-signature.clock-chain .clock-row { justify-content: flex-end; }
 
-/* ── Barre d'outils : neuf ancrages ── */
-#home-controls[data-pos] {
+/* ── Neuf ancrages, valables pour TOUT element de l'accueil ───────────────
+   Un seul jeu de regles pilote par data-jpos. Ajouter un element au registre
+   de perso.js suffit : rien a ecrire ici. */
+/* Le double attribut n'est pas cosmetique : home.css est charge APRES cette
+   feuille, et ses regles de widgets ([class]) l'emporteraient a specificite
+   egale. [data-jpos][data-jel] pese (0,2,0) et passe devant. */
+[data-jpos][data-jel] {
   position: fixed;
   z-index: 12;
-  padding: 0;
-  transform: translate(var(--dock-tx, 0), var(--dock-ty, 0));
+  transform: translate(var(--j-tx, 0), var(--j-ty, 0));
 }
-#home-controls[data-pos^="haut"]   { top: 22px; }
-#home-controls[data-pos^="bas"]    { bottom: 22px; }
-#home-controls[data-pos^="milieu"],
-#home-controls[data-pos="centre"]  { top: 50%; --dock-ty: -50%; }
-#home-controls[data-pos$="gauche"] { left: 24px; }
-#home-controls[data-pos$="droite"] { right: 24px; }
-#home-controls[data-pos$="centre"] { left: 50%; --dock-tx: -50%; }
+[data-jpos^="haut"][data-jel]   { top: 22px;    bottom: auto; }
+[data-jpos^="bas"][data-jel]    { bottom: 22px; top: auto; }
+[data-jpos^="milieu"][data-jel],
+[data-jpos="centre"][data-jel]  { top: 50%; bottom: auto; --j-ty: -50%; }
+[data-jpos$="gauche"][data-jel] { left: 24px;  right: auto; }
+[data-jpos$="droite"][data-jel] { right: 24px; left: auto; }
+[data-jpos$="centre"][data-jel] { left: 50%;   right: auto; --j-tx: -50%; }
+
+/* La barre d'outils n'a plus besoin de sa marge de mise en page une fois
+   ancree : elle flotte. */
+#home-controls[data-jpos] { padding: 0; }
+
+/* La sphere occupe tout l'ecran : l'ancrer la deformerait. Elle garde donc
+   son inset, seule sa visibilite est reglable. */
+.home-orb-wrap[data-jpos] {
+  position: fixed; inset: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
+  transform: none;
+}
 
 /* La vue active reduit la barre : on conserve l'ancrage en composant. */
-body.view-active #home-controls[data-pos] {
-  transform: translate(var(--dock-tx, 0), var(--dock-ty, 0)) scale(0.6);
+body.view-active #home-controls[data-jpos] {
+  transform: translate(var(--j-tx, 0), var(--j-ty, 0)) scale(0.6);
 }
 
-/* ── Barre deplacable a la main ── */
-#home-controls.is-draggable          { cursor: grab; }
-#home-controls.is-draggable:active   { cursor: grabbing; }
-#home-controls.is-free {
+/* ── Deplacement a la main ── */
+.j-deplacable        { cursor: grab; }
+.j-deplacable:active { cursor: grabbing; }
+.j-libre {
   right: auto; bottom: auto;
-  --dock-tx: 0; --dock-ty: 0;
+  --j-tx: 0; --j-ty: 0;
 }
 
-/* ── Elements retirables de l'accueil ── */
-html.no-date      .home-signature .date      { display: none; }
-html.hide-clock   .home-signature .clock-row { display: none; }
-html.hide-dock    #home-controls             { display: none; }
-html.hide-orb     .home-orb-wrap             { display: none; }
-html.hide-channel .home-channel              { display: none !important; }
+/* ── Retrait d'un element ── */
+.j-cache                                { display: none !important; }
+html.no-date .home-signature .date      { display: none; }

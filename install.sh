@@ -118,7 +118,9 @@ ui_cases() {
     fi
     case "$UI" in
         whiptail|dialog)
-            $UI --title "$titre" --checklist "$texte" 18 74 8 "$@" 3>&1 1>&2 2>&3 | tr -d '"' ;;
+            # « || true » : annuler renvoie 1, et set -e tuerait le script sur
+            # un geste parfaitement legitime de l'utilisateur.
+            { $UI --title "$titre" --checklist "$texte" 18 74 8 "$@" 3>&1 1>&2 2>&3 || true; } | tr -d '"' ;;
         *)
             printf '\n== %s ==\n%s\n' "$titre" "$texte" >&2
             local choix=""

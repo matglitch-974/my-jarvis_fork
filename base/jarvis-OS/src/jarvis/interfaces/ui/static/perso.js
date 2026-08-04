@@ -39,22 +39,45 @@
       show: true,
       format: "complet",   // complet | court | numerique
     },
-    dock: {                // barre d'outils de l'accueil (02/08)
-      pos: "bas-centre",   // 9 ancrages, cf. DOCK_POS
-      draggable: false,    // libère le glisser-déposer
-      x: null, y: null,    // position libre, en % du viewport
-    },
-    hide: {                // éléments de l'accueil retirables (02/08)
-      clock: false, orb: false, channel: false, dock: false,
-    },
+    // Chaque élément de l'accueil porte les MEMES trois reglages (02/08).
+    // Rempli a partir de ELEMENTS juste apres, pour n'ecrire la liste qu'une
+    // fois : ajouter un element ne demande qu'une ligne dans ELEMENTS.
+    elements: {},
   };
 
-  /* Les neuf ancrages possibles de la barre d'outils. */
-  var DOCK_POS = [
-    "haut-gauche",  "haut-centre",  "haut-droite",
+  /* Les neuf ancrages possibles. */
+  var ANCRAGES = [
+    "haut-gauche",   "haut-centre", "haut-droite",
     "milieu-gauche", "centre",      "milieu-droite",
-    "bas-gauche",   "bas-centre",   "bas-droite",
+    "bas-gauche",    "bas-centre",  "bas-droite",
   ];
+
+  /* Registre des elements de l'accueil.
+       id       cle de reglage et attribut data-jel
+       nom      libelle affiche dans les reglages
+       sel      selecteur CSS de l'element
+       pos      ancrage par defaut
+       propre   l'element gere DEJA son propre glisser-deposer (widgets) :
+                on lui pose l'ancrage de depart, sans lui voler son drag. */
+  var ELEMENTS = [
+    { id: "barre",     nom: "Barre d'outils",   sel: "#home-controls",   pos: "bas-centre" },
+    { id: "signature", nom: "Horloge et date",  sel: ".home-signature",  pos: "haut-droite" },
+    { id: "sphere",    nom: "Sphère",           sel: ".home-orb-wrap",   pos: "centre" },
+    { id: "canal",     nom: "Dernier message",  sel: ".home-channel",    pos: "bas-droite" },
+    { id: "pensee",    nom: "Fil de pensée",    sel: "#thought-feed",    pos: "milieu-gauche" },
+    { id: "vision",    nom: "Caméra",           sel: "#cam-overlay",     pos: "bas-gauche",    propre: true },
+    { id: "musique",   nom: "Musique",          sel: "#hc-widget-music", pos: "haut-gauche",   propre: true },
+    { id: "chat",      nom: "Conversation",     sel: "#hc-widget-chat",  pos: "milieu-droite", propre: true },
+  ];
+
+  ELEMENTS.forEach(function (e) {
+    DEFAULTS.elements[e.id] = {
+      pos: e.pos,
+      deplacable: !!e.propre,  // les widgets se deplacaient deja : on le garde
+      visible: true,
+      x: null, y: null,        // position libre, en % du viewport
+    };
+  });
 
   function _merge(base, over) {
     var out = {}, k;
@@ -150,13 +173,11 @@
     root.classList.toggle("no-brand", !p.brand);
     root.style.setProperty("--brand-size", p.brandSize + "px");
 
-    // 02/08 — date sous l'horloge, et éléments retirés de l'accueil
+    // 02/08 — date sous l'horloge
     root.classList.toggle("no-date", !p.date.show);
-    root.classList.toggle("hide-clock", !!p.hide.clock);
-    root.classList.toggle("hide-orb", !!p.hide.orb);
-    root.classList.toggle("hide-channel", !!p.hide.channel);
-    root.classList.toggle("hide-dock", !!p.hide.dock);
-    applyDock();
+
+    // 02/08 — placement, deplacement et visibilite de CHAQUE element
+    applyElements();
 
     // 17 — fond
     applyBackground();
@@ -189,21 +210,41 @@
     link.href = href;
   }
 
-  /* ── Barre d'outils de l'accueil (02/08) ──────────────────────────────
-     Tout le placement est en CSS, pilote par data-pos : neuf ancrages. Si le
-     Maitre l'a deplacee a la main, x/y prennent le dessus — stockes en % du
-     viewport, pour que la barre reste a sa place quand la fenetre change de
-     taille. */
-  function applyDock() {
-    var d = get().dock;
-    var node = document.getElementById("home-controls");
-    if (!node) return;
-    node.dataset.pos = DOCK_POS.indexOf(d.pos) >= 0 ? d.pos : "bas-centre";
-    node.classList.toggle("is-draggable", !!d.draggable);
-    var free = !!(d.draggable && d.x != null && d.y != null);
-    node.classList.toggle("is-free", free);
-    node.style.left = free ? d.x + "%" : "";
-    node.style.top  = free ? d.y + "%" : "";
+  /* ── Elements de l'accueil (02/08) ────────────────────────────────────
+     Un seul mecanisme pour tous : le placement est en CSS, pilote par
+     data-jpos (neuf ancrages). Si le Maitre a deplace l'element a la main,
+     x/y prennent le dessus — stockes en % du viewport, pour que rien ne
+     bouge quand la fenetre change de taille.
+
+     Les elements marques « propre » (camera, musique, conversation) gardent
+     leur glisser-deposer d'origine : on leur pose seulement l'ancrage de
+     depart et la visibilite, sans leur voler leur comportement. */
+  function elementsConnus() { return ELEMENTS; }
+
+  function applyElements() {
+    var etat = get().elements || {};
+    ELEMENTS.forEach(function (e) {
+      var r = etat[e.id] || {};
+      var node = document.querySelector(e.sel);
+      if (!node) return;
+
+      node.dataset.jel = e.id;
+      node.dataset.jpos = ANCRAGES.indexOf(r.pos) >= 0 ? r.pos : e.pos;
+      node.classList.toggle("j-deplacable", !!r.deplacable);
+      node.classList.toggle("j-cache", r.visible === false);
+
+      var libre = !!(r.deplacable && r.x != null && r.y != null);
+      node.classList.toggle("j-libre", libre);
+      node.style.left = libre ? r.x + "%" : "";
+      node.style.top  = libre ? r.y + "%" : "";
+    });
+  }
+
+  /* Enregistre la position atteinte au glisser-deposer, en % du viewport. */
+  function poserPosition(id, xPourcent, yPourcent) {
+    var patch = { elements: {} };
+    patch.elements[id] = { x: xPourcent, y: yPourcent };
+    return set(patch);
   }
 
   /* ── Date sous l'horloge (02/08) ──────────────────────────────────────── */
@@ -276,7 +317,8 @@
 
   window.JarvisPerso = {
     DEFAULTS: DEFAULTS,
-    DOCK_POS: DOCK_POS,
+    ANCRAGES: ANCRAGES,
+    ELEMENTS: ELEMENTS,
     get: get,
     set: set,
     reset: reset,
@@ -286,7 +328,9 @@
     clockTickMs: clockTickMs,
     refreshFavicon: refreshFavicon,
     applyBackground: applyBackground,
-    applyDock: applyDock,
+    applyElements: applyElements,
+    elementsConnus: elementsConnus,
+    poserPosition: poserPosition,
   };
 
   function boot() { apply(); }

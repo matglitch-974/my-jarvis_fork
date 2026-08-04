@@ -929,51 +929,55 @@
   makeDraggable(document.getElementById("hc-widget-chat"));
   makeResizable(document.getElementById("hc-widget-chat"), document.getElementById("chat-resize-handle"), 220, 160);
 
-  /* ── Barre d'outils déplaçable (02/08) ────────────────────────────────
-     Active seulement si l'option est cochée dans Réglages › Apparence. On ne
-     bascule en glissement qu'au-delà de 4 px : sinon un simple clic sur un
-     bouton de la barre serait avalé par le glisser-déposer. La position est
-     retenue en % du viewport, pour survivre au redimensionnement. */
-  (function dockDrag() {
-    const dock = document.getElementById("home-controls");
-    if (!dock) return;
-    let sx = 0, sy = 0, ox = 0, oy = 0, armed = false, moved = false;
+  /* ── Éléments déplaçables (02/08) ─────────────────────────────────────
+     Un seul gestionnaire pour TOUS les éléments de l'accueil, délégué sur le
+     document : il suffit qu'un élément porte la classe `j-deplacable`, posée
+     par perso.js quand l'option est cochée. Aucun câblage par élément.
 
-    dock.addEventListener("mousedown", (e) => {
-      const perso = P();
-      if (e.button !== 0 || !perso || !perso.get().dock.draggable) return;
-      const r = dock.getBoundingClientRect();
-      sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
-      armed = true; moved = false;
+     On ne bascule en glissement qu'au-delà de 4 px : sinon un simple clic sur
+     un bouton serait avalé par le glisser-déposer. La position est retenue en
+     % du viewport, pour survivre au redimensionnement de la fenêtre. */
+  (function elementsDeplacables() {
+    let cible = null, sx = 0, sy = 0, ox = 0, oy = 0, bouge = false;
+
+    document.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      const n = e.target.closest ? e.target.closest(".j-deplacable") : null;
+      if (!n) return;
+      const r = n.getBoundingClientRect();
+      cible = n; sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
+      bouge = false;
       e.preventDefault();
     });
 
     document.addEventListener("mousemove", (e) => {
-      if (!armed) return;
+      if (!cible) return;
       const dx = e.clientX - sx, dy = e.clientY - sy;
-      if (!moved && Math.hypot(dx, dy) < 4) return;
-      moved = true;
-      const x = Math.max(0, Math.min(window.innerWidth  - dock.offsetWidth,  ox + dx));
-      const y = Math.max(0, Math.min(window.innerHeight - dock.offsetHeight, oy + dy));
-      dock.classList.add("is-free");
-      dock.style.left = (x / window.innerWidth  * 100) + "%";
-      dock.style.top  = (y / window.innerHeight * 100) + "%";
+      if (!bouge && Math.hypot(dx, dy) < 4) return;
+      bouge = true;
+      const x = Math.max(0, Math.min(window.innerWidth  - cible.offsetWidth,  ox + dx));
+      const y = Math.max(0, Math.min(window.innerHeight - cible.offsetHeight, oy + dy));
+      cible.classList.add("j-libre");
+      cible.style.left = (x / window.innerWidth  * 100) + "%";
+      cible.style.top  = (y / window.innerHeight * 100) + "%";
     });
 
     document.addEventListener("mouseup", () => {
-      if (!armed) return;
-      armed = false;
-      if (!moved) return;
+      if (!cible) return;
+      const n = cible; cible = null;
+      if (!bouge) return;
       const perso = P();
-      if (perso) {
-        perso.set({ dock: { x: parseFloat(dock.style.left), y: parseFloat(dock.style.top) } });
+      if (perso && n.dataset.jel) {
+        perso.poserPosition(n.dataset.jel,
+          parseFloat(n.style.left), parseFloat(n.style.top));
       }
     });
 
     // Le clic qui suit un glissement ne doit actionner aucun bouton.
-    dock.addEventListener("click", (e) => {
-      if (!moved) return;
-      moved = false;
+    document.addEventListener("click", (e) => {
+      if (!bouge) return;
+      bouge = false;
+      if (!e.target.closest || !e.target.closest(".j-deplacable")) return;
       e.stopPropagation();
       e.preventDefault();
     }, true);

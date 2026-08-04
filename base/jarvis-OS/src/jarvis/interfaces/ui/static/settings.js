@@ -75,10 +75,10 @@
     return sec;
   }
 
-  /* Sélecteur d'ancrage 3×3 de la barre d'outils (02/08). */
+  /* Sélecteur d'ancrage 3×3, commun à tous les éléments de l'accueil (02/08). */
   function dockPosPicker(value, onpick) {
     const P = window.JarvisPerso;
-    const all = (P && P.DOCK_POS) || [];
+    const all = (P && P.ANCRAGES) || [];
     const grid = el("div", { class: "dock-grid" });
     all.forEach((id) => {
       const cell = el("button", {
@@ -1724,65 +1724,93 @@
     ));
     body.appendChild(ghostSec("Effets", "ce qui brille, et ce qui ne brille plus", null, fxList));
 
-    /* ── Accueil : dossier « éléments » (02/08) ───────────────────────── */
-    const homeList = el("div");
+    /* ── Accueil : un dossier PAR élément (02/08) ──────────────────────────
+       Choix retenu apres arbitrage : chaque element porte ses trois reglages
+       au meme endroit — ou il se place, s'il se deplace, s'il s'affiche.
+       Un menu global « retirer » separe aurait duplique l'etat et oblige a
+       faire des allers-retours pour un seul element.
 
-    homeList.appendChild(settingRow(
-      "Position de la barre d'outils",
-      "Neuf ancrages — les quatre coins, les quatre bords, ou le centre",
-      dockPosPicker(P.get().dock.pos, (pos) => P.set({ dock: { pos: pos, x: null, y: null } })),
-    ));
-    homeList.appendChild(toggleRow(
-      "Barre d'outils déplaçable",
-      "Permet de déplacer la barre d'outils présente sur l'écran principal de Jarvis",
-      P.get().dock.draggable,
-      (v) => P.set({ dock: { draggable: v } }),
-    ));
-    homeList.appendChild(toggleRow(
-      "Afficher « JARVIS »",
-      "Le grand mot filigrané derrière l'horloge, à l'accueil",
-      P.get().brand,
-      (v) => P.set({ brand: v }),
-    ));
-    homeList.appendChild(sliderRow(
-      "Taille du mot « JARVIS »", "hauteur du filigrane derrière l'horloge",
-      { min: 40, max: 320, step: 2 }, P.get().brandSize,
-      (v) => v + " px",
-      (v) => P.set({ brandSize: v }),
-    ));
-    homeList.appendChild(sliderRow(
-      "Taille de la sphère", "100 % = taille d'origine ; 83 % est le défaut",
-      { min: 0.1, max: 3, step: 0.01 }, P.get().orbScale,
-      (v) => Math.round(v * 100) + " %",
-      (v) => P.set({ orbScale: v }),
-    ));
-    body.appendChild(folderSec(
-      "Éléments de l'accueil", "barre d'outils · marque · sphère", homeList, true,
-    ));
+       Reserve : un element masque n'est plus cliquable, donc plus reglable
+       depuis l'accueil. D'ou le bouton « Tout réafficher » en fin de section,
+       seule commande globale conservee. */
+    const reglagesParticuliers = {
+      signature: () => {
+        const l = el("div");
+        l.appendChild(toggleRow(
+          "Afficher « JARVIS »",
+          "Le grand mot filigrané derrière l'horloge",
+          P.get().brand, (v) => P.set({ brand: v }),
+        ));
+        l.appendChild(sliderRow(
+          "Taille du mot « JARVIS »", "hauteur du filigrane",
+          { min: 40, max: 320, step: 2 }, P.get().brandSize,
+          (v) => v + " px", (v) => P.set({ brandSize: v }),
+        ));
+        l.appendChild(toggleRow(
+          "Afficher la date", "La ligne sous l'horloge",
+          P.get().date.show, (v) => P.set({ date: { show: v } }),
+        ));
+        return l;
+      },
+      sphere: () => {
+        const l = el("div");
+        l.appendChild(sliderRow(
+          "Taille de la sphère", "100 % = taille d'origine ; 83 % est le défaut",
+          { min: 0.1, max: 3, step: 0.01 }, P.get().orbScale,
+          (v) => Math.round(v * 100) + " %", (v) => P.set({ orbScale: v }),
+        ));
+        return l;
+      },
+    };
 
-    /* ── Accueil : dossier « masquer » (02/08) ────────────────────────── */
-    const hideList = el("div");
-    [
-      ["clock",   "Horloge",          "Le grand chiffre en haut à droite"],
-      ["dock",    "Barre d'outils",   "Micro, écran, caméra, fichiers, musique, chat, perso"],
-      ["orb",     "Sphère",           "La boule de particules au centre"],
-      ["channel", "Dernier message",  "Le mot de Jarvis, en bas à droite"],
-    ].forEach(([key, label, sub]) => {
-      hideList.appendChild(toggleRow(label, sub, !P.get().hide[key], (v) => {
-        const patch = { hide: {} };
-        patch.hide[key] = !v;
-        P.set(patch);
-      }));
+    (P.ELEMENTS || []).forEach((e) => {
+      const etat = () => P.get().elements[e.id] || {};
+      const liste = el("div");
+
+      liste.appendChild(toggleRow(
+        "Afficher", "Décocher retire l'élément de l'accueil, sans rien supprimer",
+        etat().visible !== false,
+        (v) => { const p = { elements: {} }; p.elements[e.id] = { visible: v }; P.set(p); },
+      ));
+
+      // La sphere occupe tout l'ecran : l'ancrer ou la deplacer n'a pas de sens.
+      if (e.id !== "sphere") {
+        liste.appendChild(settingRow(
+          "Position",
+          "Neuf ancrages — les quatre coins, les quatre bords, ou le centre",
+          dockPosPicker(etat().pos || e.pos, (pos) => {
+            const p = { elements: {} };
+            p.elements[e.id] = { pos: pos, x: null, y: null };
+            P.set(p);
+          }),
+        ));
+        liste.appendChild(toggleRow(
+          "Déplaçable",
+          "Permet de déplacer « " + e.nom + " » à la souris sur l'écran principal de Jarvis",
+          !!etat().deplacable,
+          (v) => { const p = { elements: {} }; p.elements[e.id] = { deplacable: v }; P.set(p); },
+        ));
+      }
+
+      const extra = reglagesParticuliers[e.id];
+      if (extra) liste.appendChild(extra());
+
+      body.appendChild(folderSec(e.nom, "affichage · position · déplacement", liste, false));
     });
-    hideList.appendChild(toggleRow(
-      "Date", "La ligne sous l'horloge",
-      P.get().date.show,
-      (v) => P.set({ date: { show: v } }),
-    ));
-    body.appendChild(folderSec(
-      "Retirer des éléments de l'accueil",
-      "décocher masque l'élément, sans rien supprimer", hideList, false,
-    ));
+
+    const toutWrap = el("div");
+    const toutBtn = el("button", { class: "m-btn ghost", text: "Tout réafficher" });
+    toutBtn.addEventListener("click", () => {
+      const p = { elements: {} };
+      (P.ELEMENTS || []).forEach((e) => { p.elements[e.id] = { visible: true }; });
+      P.set(p);
+      P.set({ date: { show: true } });
+      navigate("apparence");
+    });
+    toutWrap.appendChild(toutBtn);
+    body.appendChild(ghostSec("Éléments de l'accueil",
+      "un dossier par élément ci-dessus · ce bouton les rend tous visibles",
+      null, toutWrap));
 
     /* ── Horloge (demande 11) ─────────────────────────────────────────── */
     const clockList = el("div");
