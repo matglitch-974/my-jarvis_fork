@@ -62,6 +62,10 @@ $ok = (Compiler -Source "Installateur.cs" -Sortie "Installer My Jarvis.exe" -Cib
         -Refs @("System.dll", "System.Drawing.dll", "System.Windows.Forms.dll",
                 "System.IO.Compression.dll", "System.IO.Compression.FileSystem.dll")) -and $ok
 
+# Lanceur : tape la commande unique a la place de l'utilisateur (mode neophyte).
+$ok = (Compiler -Source "Lanceur.cs" -Sortie "Lancer l'installation.exe" -Cible "winexe" `
+        -Refs @("System.dll", "System.Drawing.dll", "System.Windows.Forms.dll")) -and $ok
+
 # Fenetre native : WinForms + WebView2 (DLL deja presentes dans Jarvis\native).
 $wv  = Join-Path $natif "Microsoft.Web.WebView2.Core.dll"
 $wvf = Join-Path $natif "Microsoft.Web.WebView2.WinForms.dll"

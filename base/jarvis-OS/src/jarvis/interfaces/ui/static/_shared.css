@@ -1492,3 +1492,54 @@ body.view-active #home-controls[data-jpos] {
 /* ── Retrait d'un element ── */
 .j-cache                                { display: none !important; }
 html.no-date .home-signature .date      { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Bascule de mode — Chat / Fusionne / Code (03/08)
+   Meme matiere que .hc-pill : verre depoli, meme rayon, meme liseré. Le
+   segment actif est un bloc clair pose DANS la pilule, pas un bouton a part.
+   ═══════════════════════════════════════════════════════════════════════ */
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgba(220, 232, 255, 0.15);
+  border-radius: 13px;
+  background: rgba(12, 15, 28, 0.88);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  backdrop-filter: blur(40px) saturate(200%);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(220, 232, 255, 0.13);
+}
+
+.ms-seg {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+.ms-seg:hover:not(:disabled):not(.is-on) {
+  color: var(--fg-1);
+  background: rgba(220, 232, 255, 0.05);
+}
+.ms-seg.is-on {
+  color: var(--fg-0);
+  background: rgba(220, 232, 255, 0.10);
+  border-color: rgba(220, 232, 255, 0.13);
+}
+.ms-seg:disabled { opacity: .38; cursor: not-allowed; }
+.ms-seg svg { flex-shrink: 0; }
+
+/* Le segment « Fusionne » porte l'anneau de Jarvis : il suit la teinte,
+   comme le logo, pour signaler que c'est bien la sphere qu'on y retrouve. */
+.ms-seg .ms-orb { color: rgb(var(--icon-rgb, 64, 95, 136)); }
+.ms-seg.is-on .ms-orb { color: rgb(var(--icon-rgb, 64, 95, 136)); }

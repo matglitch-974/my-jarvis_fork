@@ -7,7 +7,13 @@
 #
 #      bash <(curl -fsSL https://raw.githubusercontent.com/matglitch-974/my-jarvis_fork/main/install.sh)
 #
+#  Deux modes :
+#    neophyte (defaut)  une interface guidee, aucune commande a taper
+#    dev  (--dev)       aucune interface, chaque commande affichee avant
+#                       d'etre lancee : on voit exactement ce qui se passe
+#
 #  Options :
+#    --dev                mode developpeur (commandes visibles, pas d'interface)
 #    --yes | --defaults   rejoue l'installation sans poser de question
 #    --update             met a jour une installation existante
 #    --uninstall          desinstalle (sauvegarde horodatee, rien n'est efface)
@@ -28,6 +34,7 @@ JOURNAL="$ETAT/install.log"
 CIBLE_DEFAUT="$HOME/My Jarvis"
 
 MODE="installer"       # installer | maj | desinstaller
+PROFIL="neophyte"      # neophyte | dev
 SANS_QUESTION=0
 CIBLE=""
 
@@ -48,6 +55,7 @@ Le detail est dans :
 # ── Arguments ─────────────────────────────────────────────────────────────
 while [ $# -gt 0 ]; do
     case "$1" in
+        --dev)            PROFIL="dev" ;;
         --yes|--defaults) SANS_QUESTION=1 ;;
         --update)         MODE="maj" ;;
         --uninstall)      MODE="desinstaller" ;;
@@ -67,11 +75,22 @@ done
 # ══════════════════════════════════════════════════════════════════════════
 UI=""
 detecter_ui() {
-    if   command -v whiptail >/dev/null 2>&1; then UI="whiptail"
-    elif command -v dialog    >/dev/null 2>&1; then UI="dialog"
+    # Le mode dev n'ouvre aucune fenetre : il veut voir les commandes.
+    if [ "$PROFIL" = "dev" ]; then UI="texte"
+    elif command -v whiptail >/dev/null 2>&1; then UI="whiptail"
+    elif command -v dialog   >/dev/null 2>&1; then UI="dialog"
     else UI="texte"
     fi
-    note "interface : $UI"
+    note "profil : $PROFIL — interface : $UI"
+}
+
+# Mode dev : on annonce la commande, puis on la lance. Rien ne se passe dans
+# le dos de qui installe. Mode neophyte : la commande file au journal, et
+# l'ecran reste calme.
+executer() {
+    if [ "$PROFIL" = "dev" ]; then printf '\n  $ %s\n' "$*"; fi
+    note "\$ $*"
+    "$@"
 }
 
 ui_message() {   # titre, corps
@@ -271,12 +290,12 @@ Voulez-vous saisir votre jeton maintenant ?
 recuperer_source() {
     if [ -d "$CIBLE/.git" ]; then
         note "depot deja present — mise a jour"
-        git -C "$CIBLE" pull --ff-only >>"$JOURNAL" 2>&1 \
+        executer git -C "$CIBLE" pull --ff-only >>"$JOURNAL" 2>&1 \
             || note "pull impossible (modifications locales ?) — on garde l'existant"
     else
         note "clonage vers $CIBLE"
         mkdir -p "$(dirname "$CIBLE")"
-        git clone --depth 1 "$DEPOT" "$CIBLE" >>"$JOURNAL" 2>&1 \
+        executer git clone --depth 1 "$DEPOT" "$CIBLE" >>"$JOURNAL" 2>&1 \
             || mourir "Le clonage a echoue. Connexion coupee ?"
     fi
 
@@ -295,7 +314,7 @@ installer_dependances() {
     local projet="$CIBLE/base/jarvis-OS"
     [ -d "$projet" ] || mourir "Arborescence inattendue : $projet est introuvable."
     note "uv sync dans $projet"
-    ( cd "$projet" && uv sync >>"$JOURNAL" 2>&1 ) \
+    ( cd "$projet" && executer uv sync >>"$JOURNAL" 2>&1 ) \
         || mourir "L'installation des dependances Python a echoue."
 }
 
@@ -415,15 +434,22 @@ Lancer l'installation ?"; then
         echo "Abandon."; exit 0
     fi
 
-    {
-        echo 10; echo "# Recuperation du code..."
+    # En mode dev on ne masque rien derriere une jauge : la sortie defile.
+    if [ "$PROFIL" = "dev" ]; then
         recuperer_source
-        echo 45; echo "# Installation des dependances (plusieurs minutes)..."
         installer_dependances
-        echo 85; echo "# Ecriture de la configuration..."
         ecrire_config; ecrire_lanceur; activer_demarrage
-        echo 100; echo "# Termine."
-    } | ui_jauge "Installation" "Preparation..."
+    else
+        {
+            echo 10; echo "# Recuperation du code..."
+            recuperer_source
+            echo 45; echo "# Installation des dependances (plusieurs minutes)..."
+            installer_dependances
+            echo 85; echo "# Ecriture de la configuration..."
+            ecrire_config; ecrire_lanceur; activer_demarrage
+            echo 100; echo "# Termine."
+        } | ui_jauge "Installation" "Preparation..."
+    fi
 
     local note_node=""
     command -v node >/dev/null 2>&1 || note_node="

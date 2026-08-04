@@ -85,6 +85,32 @@
       </div>
 
     </div>
+
+    <!-- Bascule de mode : Chat / Fusionn&#233; / Code.
+         Fusionn&#233; = la sph&#232;re et ses visuels DANS l'interface de code. Il reste
+         inactif tant que Chat et Code ne sont pas termin&#233;s tous les deux. -->
+    <div class="mode-switch" id="mode-switch" role="tablist" aria-label="Mode d'interface">
+      <button class="ms-seg is-on" data-mode="chat" role="tab" aria-selected="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>Chat</span>
+      </button>
+      <button class="ms-seg" data-mode="fusionne" role="tab" aria-selected="false" disabled
+              title="Disponible une fois Chat et Code termin&#233;s">
+        <svg class="ms-orb" width="15" height="15" viewBox="0 0 26 26" aria-hidden="true">
+          <circle cx="13" cy="13" r="11" fill="none" stroke="currentColor" stroke-width="3.42"/>
+        </svg>
+        <span>Fusionn&#233;</span>
+      </button>
+      <button class="ms-seg" data-mode="code" role="tab" aria-selected="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 6 4 12 9 18"/><polyline points="15 6 20 12 15 18"/>
+        </svg>
+        <span>Code</span>
+      </button>
+    </div>
+
     <div class="home-signature">
       <div class="brand">JARVIS</div>
       <div class="clock-row">

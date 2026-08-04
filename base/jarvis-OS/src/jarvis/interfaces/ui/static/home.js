@@ -929,6 +929,50 @@
   makeDraggable(document.getElementById("hc-widget-chat"));
   makeResizable(document.getElementById("hc-widget-chat"), document.getElementById("chat-resize-handle"), 220, 160);
 
+  /* ── Bascule de mode : Chat / Fusionné / Code (03/08) ─────────────────
+     Chat est le mode actuel. Code n'a pas encore d'interface ; Fusionné est
+     verrouillé par construction tant que les deux autres ne sont pas finis.
+     On ne fait donc ici que la mécanique de bascule et la mémoire du choix,
+     sans prétendre que les destinations existent. */
+  (function bascule() {
+    const barre = document.getElementById("mode-switch");
+    if (!barre) return;
+    const K = "jarvis_mode_interface";
+
+    function poser(mode) {
+      barre.querySelectorAll(".ms-seg").forEach((s) => {
+        const actif = s.dataset.mode === mode;
+        s.classList.toggle("is-on", actif);
+        s.setAttribute("aria-selected", actif ? "true" : "false");
+      });
+      document.body.dataset.interfaceMode = mode;
+      try { localStorage.setItem(K, mode); } catch (e) {}
+    }
+
+    barre.addEventListener("click", (e) => {
+      const seg = e.target.closest(".ms-seg");
+      if (!seg || seg.disabled) return;
+      const mode = seg.dataset.mode;
+      if (mode === "code") {
+        Jarvis.confirm({
+          eyebrow: "Mode Code",
+          title: "Interface pas encore construite",
+          body: "Le mode Code attend sa maquette de référence. "
+              + "Rien n'est perdu : le choix est mémorisé et s'appliquera "
+              + "dès que l'interface existera.",
+          okLabel: "Compris",
+        });
+      }
+      poser(mode);
+    });
+
+    let init = "chat";
+    try { init = localStorage.getItem(K) || "chat"; } catch (e) {}
+    // Un mode enregistré mais désormais verrouillé ne doit pas bloquer.
+    const seg = barre.querySelector('.ms-seg[data-mode="' + init + '"]');
+    poser(seg && !seg.disabled ? init : "chat");
+  })();
+
   /* ── Éléments déplaçables (02/08) ─────────────────────────────────────
      Un seul gestionnaire pour TOUS les éléments de l'accueil, délégué sur le
      document : il suffit qu'un élément porte la classe `j-deplacable`, posée

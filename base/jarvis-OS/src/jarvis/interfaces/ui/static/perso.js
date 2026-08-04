@@ -61,6 +61,7 @@
                 on lui pose l'ancrage de depart, sans lui voler son drag. */
   var ELEMENTS = [
     { id: "barre",     nom: "Barre d'outils",   sel: "#home-controls",   pos: "bas-centre" },
+    { id: "modes",     nom: "Bascule de mode",  sel: "#mode-switch",     pos: "haut-centre" },
     { id: "signature", nom: "Horloge et date",  sel: ".home-signature",  pos: "haut-droite" },
     { id: "sphere",    nom: "Sphère",           sel: ".home-orb-wrap",   pos: "centre" },
     { id: "canal",     nom: "Dernier message",  sel: ".home-channel",    pos: "bas-droite" },

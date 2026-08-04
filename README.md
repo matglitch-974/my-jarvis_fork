@@ -63,7 +63,15 @@ sidecar.
 
 ## Installation
 
-### Linux — une seule commande
+Deux chemins, selon ce que vous voulez voir.
+
+| | **Néophyte** | **Développeur** |
+| --- | --- | --- |
+| Ce que vous faites | Coller une commande, ou double-cliquer | Les mêmes commandes, à la main |
+| Ce que vous voyez | Une interface guidée | Chaque commande avant son exécution |
+| Comment | la commande ci-dessous | la même, avec `--dev` |
+
+### Néophyte — une seule commande
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/matglitch-974/my-jarvis_fork/main/install.sh)
@@ -72,6 +80,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/matglitch-974/my-jarvis_fork
 Une interface s'ouvre aussitôt : dossier d'installation, composants à activer,
 jeton Claude. Elle utilise `whiptail` (présent d'office sur Debian, Ubuntu et
 Kubuntu) et l'installe au besoin ; sans lui, elle bascule sur un mode texte.
+
+Si même ouvrir un terminal vous rebute, `Lancer l'installation.exe` fait ce
+geste à votre place : il affiche la commande, vous la montre, et la lance.
+
+### Développeur — commandes visibles
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/matglitch-974/my-jarvis_fork/main/install.sh) --dev
+```
+
+Aucune interface. Chaque commande est affichée avant d'être lancée — clonage,
+`uv sync`, écriture de la configuration. Rien ne se passe hors de votre vue.
 
 L'installateur récupère le code, prépare l'environnement Python avec
 [uv](https://github.com/astral-sh/uv) et écrit un lanceur. Ensuite :
@@ -84,6 +104,7 @@ L'interface s'ouvre sur `http://127.0.0.1:8000/`.
 
 | Option | Effet |
 | --- | --- |
+| `--dev` | Mode développeur : commandes visibles, aucune interface |
 | `--yes` | Réinstalle sans poser de question, en reprenant les choix précédents |
 | `--update` | Met à jour une installation existante et rejoue la configuration |
 | `--uninstall` | Désinstalle — tout est **déplacé** dans une sauvegarde horodatée, rien n'est effacé |
