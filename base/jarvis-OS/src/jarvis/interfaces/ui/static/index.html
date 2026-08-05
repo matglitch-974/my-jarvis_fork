@@ -2620,7 +2620,10 @@
 
     function connect() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      // Le jeton voyage en sous-protocole : le navigateur interdit les en-têtes
+      // à l'upgrade, et l'URL finirait dans les journaux d'accès.
+      ws = new WebSocket(`${proto}://${location.host}/ws`,
+        window.JARVIS_API_TOKEN ? ['jarvis-bearer', window.JARVIS_API_TOKEN] : []);
       ws.onopen = () => { wsDot.style.background = 'var(--green)'; sphereState = 'IDLE'; };
       ws.onclose = () => { wsDot.style.background = 'var(--text-dim)'; setTimeout(connect, 2000); };
       ws.onerror = () => ws.close();
@@ -2637,7 +2640,9 @@
           currentMsgEl.textContent = currentMsgRaw
             .replace(/\[MINDMAP\][\s\S]*\[\/MINDMAP\]/, '↗')
             .replace(/\[MINDMAP\][\s\S]*$/, '↗…');
-          chat.scrollTop = chat.scrollHeight; sphereState = 'SPEAKING';
+          // La sphère "écrit" tant qu'aucune voix ne sort. Elle ne passera en
+          // SPEAKING que si voix-reponse.js se met réellement à parler.
+          chat.scrollTop = chat.scrollHeight; sphereState = 'THINKING';
         } else if (msg.type === 'done') {
           if (currentMsgEl) { checkForMindmapRaw(currentMsgEl, currentMsgRaw); currentMsgEl.classList.remove('streaming'); }
           currentMsgEl = null; currentMsgRaw = ''; sphereState = 'IDLE'; msgInput.disabled = false; msgInput.focus();
@@ -2688,6 +2693,14 @@
 
     sendBtn.addEventListener('click', send);
     msgInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+
+    // La sphère suit la voix réelle : SPEAKING seulement quand du son sort.
+    window.addEventListener('jarvis:lecture-etat', e => {
+      const etat = (e.detail || {}).etat;
+      if (etat === 'speaking') sphereState = 'SPEAKING';
+      else if (sphereState === 'SPEAKING') sphereState = 'IDLE';
+    });
+
     connect();
     _loadSessionList();
 
@@ -2837,6 +2850,16 @@
     // ══════════════════════════════════════════════════════════════
     //  WIDGETS — Notion tasks + Google Calendar events
     // ══════════════════════════════════════════════════════════════
+    // Ces deux widgets affichent du contenu venu de l'EXTÉRIEUR : un titre
+    // d'événement peut avoir été écrit par n'importe qui vous ayant envoyé une
+    // invitation. Sans échappement, une balise dans un titre s'exécutait dans
+    // cette page — qui porte window.JARVIS_API_TOKEN.
+    function escHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     const SVG_DONE = `<svg class="task-ico" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3" fill="#2D7DD2"/><polyline points="4,8.5 6.5,11 12,5.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     const SVG_TODO = `<svg class="task-ico" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3" stroke="#3A4558" stroke-width="1.2" fill="none"/></svg>`;
 
@@ -2852,7 +2875,7 @@
         list.innerHTML = tasks.map(t => `
       <div class="task${t.done ? ' done' : ''}">
         ${t.done ? SVG_DONE : SVG_TODO}
-        ${t.text}
+        ${escHtml(t.text)}
       </div>`).join('');
       } catch (e) { console.warn('tasks widget error', e); }
     }
@@ -2868,10 +2891,10 @@
         badge.textContent = events.length;
         list.innerHTML = events.map(e => `
       <div class="event">
-        <div class="ev-time">${e.time}</div>
+        <div class="ev-time">${escHtml(e.time)}</div>
         <div>
-          <div class="ev-name">${e.name}</div>
-          ${e.subtitle ? `<div class="ev-sub">${e.subtitle}</div>` : ''}
+          <div class="ev-name">${escHtml(e.name)}</div>
+          ${e.subtitle ? `<div class="ev-sub">${escHtml(e.subtitle)}</div>` : ''}
         </div>
         <div class="ev-pip"></div>
       </div>`).join('');
@@ -3554,6 +3577,7 @@
 <script src="/perso.js"></script>
 <script src="/glass.js"></script>
 <script src="/claude-mode.js"></script>
+<script src="/voix-reponse.js"></script>
 <script src="/_shared.js"></script>
   <script>
     // En mode SPA, l'atmosphère et la bottom nav sont déjà gérées par index.html

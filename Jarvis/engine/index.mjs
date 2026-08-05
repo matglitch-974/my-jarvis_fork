@@ -23,9 +23,28 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import * as reglages from './config.mjs';
+import * as moteurOpenAI from './moteurs/openai.mjs';
+import * as moteurOllama from './moteurs/ollama.mjs';
+
 const engineDir = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = process.env.MYJARVIS_ROOT || path.resolve(engineDir, '..', '..');
 const PORT = Number(process.env.MYJARVIS_SIDECAR_PORT || 4981);
+
+reglages.definirRacine(ROOT);
+
+// Moteurs interchangeables. Le protocole rendu à Python ne change jamais :
+// c'est ce qui permet de basculer d'un fournisseur à l'autre sans toucher au
+// reste de Jarvis, et sans que la gouvernance des outils bouge d'un pouce.
+const MOTEURS_ALTERNATIFS = {
+  'openai': moteurOpenAI,
+  'ollama': moteurOllama,
+};
+
+async function moteurActif() {
+  const cfg = await reglages.lire();
+  return { cfg, alt: MOTEURS_ALTERNATIFS[cfg.moteur] || null };
+}
 
 // ---- journal horodaté à la seconde ----
 const ts = () => {
@@ -140,11 +159,27 @@ async function quotaSnapshot() {
   };
 }
 
-// ---- abonnement uniquement : toute clé API dans l'env primerait sur le jeton ----
-function cleanEnv() {
+// ---- environnement du binaire Claude Code ----
+//
+// Par défaut : abonnement pur. Toute clé API présente dans l'environnement
+// primerait sur le jeton de session et basculerait en facturation, on l'efface.
+//
+// Mais si une URL de base est réglée, on détourne DÉLIBÉRÉMENT le binaire vers
+// elle. C'est ce qui rend le moteur Claude Code utilisable devant n'importe
+// quelle passerelle parlant le protocole Anthropic — LiteLLM, un proxy maison,
+// un modèle local exposé au bon format. Le binaire ne voit pas la différence.
+function cleanEnv(cfg) {
   const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;   // précédence 3 — basculerait en facturation API
-  delete env.ANTHROPIC_AUTH_TOKEN; // précédence 2 — idem
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+
+  const c = cfg?.claude || {};
+  if (c.baseUrl) {
+    env.ANTHROPIC_BASE_URL = c.baseUrl;
+    // Une passerelle tierce attend souvent un jeton à elle. Sans jeton réglé,
+    // on laisse le binaire présenter sa session d'abonnement.
+    if (c.jeton) env.ANTHROPIC_AUTH_TOKEN = c.jeton;
+  }
   return env;
 }
 
@@ -204,15 +239,25 @@ function renderPrompt(messages) {
 }
 
 // ---- options communes query() ----
-function baseOptions(body, model) {
+function baseOptions(body, model, cfg) {
+  // Les outils natifs de Claude Code sont coupés par défaut pour que seuls les
+  // outils Jarvis existent. La liste des exceptions est réglable : on retire
+  // des interdits ceux que l'utilisateur a explicitement autorisés.
+  const autorises = new Set(cfg?.claude?.outilsNatifsAutorises || []);
+  const interdits = CORE_TOOLS.filter(t => !autorises.has(t));
+
+  const thinking = body.maxThinkingTokens > 0
+    ? body.maxThinkingTokens
+    : (cfg?.claude?.maxThinkingTokens || 0);
+
   return {
     systemPrompt: body.system || undefined,   // chaîne custom : remplace tout
     model,
     settingSources: [],                       // isolation : aucun settings/CLAUDE.md externe
-    disallowedTools: CORE_TOOLS,
-    env: cleanEnv(),
+    disallowedTools: interdits,
+    env: cleanEnv(cfg),
     cwd: ROOT,
-    ...(body.maxThinkingTokens > 0 ? { maxThinkingTokens: body.maxThinkingTokens } : {})
+    ...(thinking > 0 ? { maxThinkingTokens: thinking } : {})
   };
 }
 
@@ -220,11 +265,38 @@ function baseOptions(body, model) {
 
 async function runComplete(body, res) {
   const stream = Boolean(body.stream);
+
+  // ── moteur alternatif : on sort du chemin Claude SDK ──────────────────────
+  const { cfg, alt } = await moteurActif();
+  if (alt) {
+    if (stream) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache' });
+    }
+    try {
+      const out = await alt.complete(cfg, { ...body, model: body.model || cfg.modele }, {
+        onDelta: (d) => { if (stream) res.write(`data:${JSON.stringify({ delta: d })}\n\n`); },
+      });
+      await recordUsage(body.model || cfg.modele, out.usage, null);
+      if (stream) { res.write(`data:${JSON.stringify({ done: true, usage: out.usage })}\n\n`); res.end(); }
+      else { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(out)); }
+    } catch (e) {
+      await log(`complete [${cfg.moteur}] ERREUR: ${e.message}`);
+      if (stream) { res.write(`data:${JSON.stringify({ error: e.message })}\n\n`); res.end(); }
+      else { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message })); }
+    }
+    return;
+  }
+
   const attempt = async (model) => {
     let text = '', usage = null, error = null;
     const q = query({
       prompt: renderPrompt(body.messages),
-      options: { ...baseOptions(body, model), allowedTools: [], maxTurns: 2, includePartialMessages: stream }
+      options: {
+        ...baseOptions(body, model, cfg),
+        allowedTools: [],
+        maxTurns: cfg.maxToursComplete || 2,
+        includePartialMessages: stream,
+      }
     });
     for await (const msg of q) {
       if (stream && msg.type === 'stream_event') {
@@ -302,11 +374,44 @@ function buildMcp(loop, tools) {
 
 async function runLoop(loopId, body) {
   const loop = loops.get(loopId);
+
+  // ── moteur alternatif ─────────────────────────────────────────────────────
+  // Le contrat de gouvernance est tenu à l'identique : chaque outil décidé par
+  // le modèle repart en `tool_call` vers Python, qui l'exécute derrière son
+  // gate. Rien n'est exécuté ici, quel que soit le moteur.
+  const { cfg, alt } = await moteurActif();
+  if (alt) {
+    try {
+      await alt.toolLoop(cfg, { ...body, model: body.model || cfg.modele }, {
+        onToolCall: (nom, args) => new Promise(resolve => {
+          const callId = randomUUID();
+          loop.pending.set(callId, resolve);
+          loop.usedTools = true;
+          pushEvent(loop, { type: 'tool_call', callId, name: nom, input: args ?? {} });
+        }),
+        onFinal: async ({ text, usage }) => {
+          await recordUsage(body.model || cfg.modele, usage, null);
+          pushEvent(loop, { type: 'final', text, usage });
+        },
+        onAvertissement: (m) => { log(`tool-loop ${loopId} [${cfg.moteur}] : ${m}`); },
+      });
+    } catch (e) {
+      await log(`tool-loop ${loopId} [${cfg.moteur}] ERREUR: ${e.message}`);
+      pushEvent(loop, { type: 'error', message: e.message });
+    }
+    return;
+  }
+
   const attempt = async (model) => {
     const { server, allowed } = buildMcp(loop, body.tools);
     const q = query({
       prompt: renderPrompt(body.messages),
-      options: { ...baseOptions(body, model), mcpServers: { jarvis: server }, allowedTools: allowed, maxTurns: 50 }
+      options: {
+        ...baseOptions(body, model, cfg),
+        mcpServers: { jarvis: server },
+        allowedTools: allowed,
+        maxTurns: cfg.maxToursOutils || 50,
+      }
     });
     for await (const msg of q) {
       if (msg.type === 'result') {
@@ -350,7 +455,13 @@ const server = http.createServer(async (req, res) => {
     const parts = url.pathname.split('/').filter(Boolean);
 
     if (req.method === 'GET' && url.pathname === '/health') {
-      return json(res, 200, { ok: true, engine: 'claude-agent-sdk', port: PORT });
+      const cfg = await reglages.lire();
+      return json(res, 200, {
+        ok: true,
+        engine: cfg.moteur,
+        model: cfg.modele || null,
+        port: PORT,
+      });
     }
     if (req.method === 'GET' && url.pathname === '/quota') {
       return json(res, 200, await quotaSnapshot());
@@ -361,6 +472,65 @@ const server = http.createServer(async (req, res) => {
       await log(`plafonds de quota mis a jour: session=${saved.session} semaine=${saved.week}`);
       return json(res, 200, { ok: true, limits: saved });
     }
+    // ══════════════ réglages du moteur — lecture, écriture, essai ══════════════
+
+    if (req.method === 'GET' && url.pathname === '/engine') {
+      const cfg = await reglages.lire();
+      return json(res, 200, {
+        actif: cfg.moteur,
+        moteurs: reglages.MOTEURS,
+        config: reglages.masquer(cfg),
+        // Le binaire Claude Code est détourné dès qu'une URL de base est posée.
+        detourne: Boolean(cfg.claude?.baseUrl),
+      });
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/engine') {
+      const patch = await readBody(req);
+      // Une clé masquée renvoyée telle quelle ne doit pas écraser la vraie.
+      if (typeof patch.cle === 'string' && patch.cle.includes('•')) delete patch.cle;
+      if (patch.claude && typeof patch.claude.jeton === 'string' && patch.claude.jeton.includes('•')) {
+        delete patch.claude.jeton;
+      }
+      const futur = { ...(await reglages.lire()), ...patch };
+      const soucis = reglages.verifier(futur);
+      if (soucis.length) return json(res, 400, { ok: false, soucis });
+      const saved = await reglages.ecrire(patch);
+      await log(`moteur reglé : ${saved.moteur}${saved.url ? ' → ' + saved.url : ''}${saved.modele ? ' (' + saved.modele + ')' : ''}`);
+      return json(res, 200, { ok: true, config: reglages.masquer(saved) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/engine/test') {
+      const patch = await readBody(req);
+      const base = await reglages.lire();
+      if (typeof patch.cle === 'string' && patch.cle.includes('•')) delete patch.cle;
+      const cfg = { ...base, ...patch };
+      const soucis = reglages.verifier(cfg);
+      if (soucis.length) return json(res, 200, { ok: false, soucis });
+
+      const alt = MOTEURS_ALTERNATIFS[cfg.moteur];
+      if (!alt) {
+        // claude-sdk : la santé se mesure sur ce sidecar lui-même.
+        return json(res, 200, { ok: true, detail: 'Moteur par abonnement — le sidecar répond.' });
+      }
+      try {
+        const vivant = await alt.sante(cfg);
+        return json(res, 200, {
+          ok: vivant,
+          detail: vivant ? 'Connexion établie.' : "Aucune réponse à cette adresse.",
+        });
+      } catch (e) {
+        return json(res, 200, { ok: false, detail: e.message });
+      }
+    }
+
+    if (req.method === 'GET' && url.pathname === '/engine/models') {
+      const cfg = await reglages.lire();
+      const alt = MOTEURS_ALTERNATIFS[cfg.moteur];
+      if (alt?.modeles) return json(res, 200, { modeles: await alt.modeles(cfg) });
+      return json(res, 200, { modeles: [] });
+    }
+
     if (req.method === 'POST' && url.pathname === '/complete') {
       return await runComplete(await readBody(req), res);
     }

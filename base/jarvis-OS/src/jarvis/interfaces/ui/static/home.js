@@ -708,7 +708,8 @@
   function connectWS() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     try {
-      _ws = new WebSocket(proto + "//" + location.host + "/ws");
+      _ws = new WebSocket(proto + "//" + location.host + "/ws",
+        window.JARVIS_API_TOKEN ? ["jarvis-bearer", window.JARVIS_API_TOKEN] : []);
     } catch (_) { return; }
 
     _ws.onmessage = (ev) => {

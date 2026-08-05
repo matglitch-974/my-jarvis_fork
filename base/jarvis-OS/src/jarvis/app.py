@@ -337,12 +337,14 @@ app.include_router(conv_projects_router)
 #    pipeline vocal local et automatisations.
 from jarvis.interfaces.api.automations import router as automations_router  # noqa: E402
 from jarvis.interfaces.api.perso import router as perso_router  # noqa: E402
+from jarvis.interfaces.api.engine import router as engine_router  # noqa: E402
 from jarvis.interfaces.api.quota import router as quota_router  # noqa: E402
 from jarvis.interfaces.api.voice_local import router as voice_local_router  # noqa: E402
 from jarvis.interfaces.api.youtube_music import router as youtube_music_router  # noqa: E402
 
 app.include_router(perso_router)
 app.include_router(quota_router)
+app.include_router(engine_router)
 app.include_router(youtube_music_router)
 app.include_router(voice_local_router)
 app.include_router(automations_router)

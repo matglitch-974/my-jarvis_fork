@@ -1,0 +1,288 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Atelier visuel — moteur de rendu</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#06080D; color:#DCE8FF;
+         font:13px/18px "Geist","Inter",system-ui,sans-serif; }
+  header { padding:14px 18px; border-bottom:1px solid rgba(220,232,255,.10);
+           display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
+  h1 { font-size:14px; font-weight:600; margin:0; letter-spacing:.02em; }
+  #etat { font-family:"Geist Mono",ui-monospace,monospace; font-size:12px;
+          color:rgba(220,232,255,.55); }
+  #etat.fini { color:#36D399; } #etat.rate { color:#E5484D; }
+  main { padding:18px; }
+  #apercu { max-width:100%; border:1px solid rgba(220,232,255,.10); border-radius:8px; }
+  #journal { margin-top:16px; font-family:"Geist Mono",ui-monospace,monospace;
+             font-size:11px; line-height:16px; color:rgba(220,232,255,.36);
+             white-space:pre-wrap; }
+  a { color:#4A9EFF; }
+  ul.scenes { padding-left:18px; }
+</style>
+
+<header>
+  <h1>ATELIER VISUEL</h1>
+  <span id="etat">au repos</span>
+</header>
+<main>
+  <canvas id="apercu"></canvas>
+  <div id="journal"></div>
+</main>
+
+<script type="module">
+/* ───────────────────────────────────────────────────────────────────────────
+   Moteur de rendu de l'atelier visuel de My Jarvis.
+
+   Appel par URL, sans pilotage exterieur :
+     moteur.html?scene=<id>&vues=6&temps=1&sortie=<nom>&l=420&h=320
+
+   Parametres
+     scene    id du fichier dans scenes/ (sans .js)      obligatoire
+     vues     nombre de points de vue                    defaut 6
+     temps    nombre d'instants (1 = image fixe)         defaut 1
+     sortie   nom du fichier ecrit dans sorties/         defaut = scene
+     l, h     taille d'une vignette en pixels            defaut 420 x 320
+     colonnes colonnes de la planche contact             defaut auto
+     fond     couleur de fond                            defaut = celle de la scene
+     zoom     facteur de distance des cameras 3D         defaut 1
+     webm     1 pour produire aussi une video            defaut 0
+
+   La planche contact finale est postee sur /ecrire et ecrite sur disque.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+const P = new URLSearchParams(location.search);
+const etat = document.getElementById("etat");
+const journal = document.getElementById("journal");
+const apercu = document.getElementById("apercu");
+
+const dire = (m) => { journal.textContent += m + "\n"; console.log(m); };
+const marquer = (m, cls) => { etat.textContent = m; etat.className = cls || ""; };
+
+const nbVues   = Math.max(1, parseInt(P.get("vues")  || "6", 10));
+const DEPART   = parseInt(P.get("depart") || "0", 10);   // decalage de l'index de vue
+const nbTemps  = Math.max(1, parseInt(P.get("temps") || "1", 10));
+const LARG     = Math.max(64, parseInt(P.get("l") || "420", 10));
+const HAUT     = Math.max(64, parseInt(P.get("h") || "320", 10));
+const ZOOM     = parseFloat(P.get("zoom") || "1");
+const VEUT_WEBM= P.get("webm") === "1";
+
+/* ── Sans scene : afficher le catalogue ─────────────────────────────────── */
+const idScene = P.get("scene");
+if (!idScene) {
+  marquer("aucune scene demandee");
+  const r = await fetch("/api/scenes").then(r => r.json());
+  journal.innerHTML = "Scenes disponibles :\n<ul class='scenes'>" + r.map(s =>
+    `<li><a href="?scene=${s.id}&vues=6">${s.id}</a> — ${s.titre || "(sans titre)"}</li>`
+  ).join("") + "</ul>";
+  throw new Error("stop");
+}
+
+/* ── Chargement de la scene ─────────────────────────────────────────────── */
+marquer("chargement de la scene…");
+let scene;
+try {
+  scene = (await import(`./scenes/${idScene}.js`)).default;
+} catch (e) {
+  marquer("scene introuvable : " + idScene, "rate");
+  dire(String(e));
+  throw e;
+}
+const FOND = P.get("fond") || scene.fond || "#06080D";
+dire(`scene   : ${idScene} — ${scene.titre || ""}`);
+dire(`type    : ${scene.type}`);
+dire(`grille  : ${nbVues} vues x ${nbTemps} instants = ${nbVues * nbTemps} vignettes`);
+dire(`vignette: ${LARG} x ${HAUT}`);
+
+/* ── Preparation de la planche contact ──────────────────────────────────── */
+const total = nbVues * nbTemps;
+const cols = parseInt(P.get("colonnes") || "0", 10) || (nbTemps > 1 ? nbVues : Math.min(3, total));
+const lignes = Math.ceil(total / cols);
+const MARGE = 8, BANDEAU = 22;
+
+apercu.width  = cols * LARG + (cols + 1) * MARGE;
+apercu.height = lignes * (HAUT + BANDEAU) + (lignes + 1) * MARGE;
+const planche = apercu.getContext("2d");
+planche.fillStyle = "#0A0E16";
+planche.fillRect(0, 0, apercu.width, apercu.height);
+
+/* ── Toile de travail ───────────────────────────────────────────────────── */
+const toile = document.createElement("canvas");
+toile.width = LARG; toile.height = HAUT;
+
+/* ── Moteur 3D, monte a la demande ──────────────────────────────────────── */
+let THREE = null, moteur3d = null;
+
+async function monter3d() {
+  if (moteur3d) return moteur3d;
+  await new Promise((ok, ko) => {
+    const s = document.createElement("script");
+    s.src = "/vendor/three.min.js";
+    s.onload = ok;
+    s.onerror = () => ko(new Error("three.js absent — voir la sortie du serveur"));
+    document.head.appendChild(s);
+  });
+  THREE = window.THREE;
+  if (!THREE) throw new Error("three.js charge mais n'expose pas THREE (build module ?)");
+  dire("three.js  : r" + (THREE.REVISION || "?"));
+
+  const rendu = new THREE.WebGLRenderer({
+    canvas: toile, antialias: true, alpha: false,
+    preserveDrawingBuffer: true   // indispensable : sans lui, la lecture rend du noir
+  });
+  rendu.setPixelRatio(1);
+  rendu.setSize(LARG, HAUT, false);
+  if (THREE.SRGBColorSpace) rendu.outputColorSpace = THREE.SRGBColorSpace;
+
+  const s3 = new THREE.Scene();
+  s3.background = new THREE.Color(FOND);
+  const cam = new THREE.PerspectiveCamera(38, LARG / HAUT, 0.05, 400);
+
+  const objets = (scene.construire ? scene.construire(THREE, s3) : null) || {};
+  moteur3d = { rendu, s3, cam, objets };
+  return moteur3d;
+}
+
+/* ── Placement des cameras : orbite reguliere ───────────────────────────── */
+function placerCamera(cam, iVue) {
+  const c = scene.cadre || {};
+  const rayon   = (c.rayon   ?? 3.2) * ZOOM;
+  const hauteur = (c.hauteur ?? 1.1) * ZOOM;
+  const cible   = c.cible    ?? [0, 0, 0];
+  const depart  = c.depart   ?? 0;                 // en tours
+  const arc     = c.arc      ?? 1;                 // 1 = tour complet
+  if (scene.camera) return scene.camera(cam, iVue, nbVues, THREE);
+  const a = (depart + (nbVues === 1 ? 0 : arc * iVue / nbVues)) * Math.PI * 2;
+  cam.position.set(cible[0] + Math.cos(a) * rayon,
+                   cible[1] + hauteur,
+                   cible[2] + Math.sin(a) * rayon);
+  cam.lookAt(cible[0], cible[1], cible[2]);
+}
+
+/* ── Rendu d'une vignette ───────────────────────────────────────────────── */
+async function vignette(iVueBrute, iTemps) {
+  const iVue = iVueBrute + DEPART;
+  const t = nbTemps === 1 ? (scene.instant ?? 0) : iTemps / nbTemps;
+
+  if (scene.type === "3d") {
+    const m = await monter3d();
+    if (scene.animer) scene.animer(t, m.objets, THREE, m.s3);
+    placerCamera(m.cam, iVue);
+    m.rendu.render(m.s3, m.cam);      // rendu manuel, jamais de rAF
+    return { canvas: toile, libelle: etiquette(iVue, iTemps, t) };
+  }
+
+  const g = toile.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = FOND;
+  g.fillRect(0, 0, LARG, HAUT);
+  scene.dessiner(g, t, iVue, LARG, HAUT, nbVues);
+  return { canvas: toile, libelle: etiquette(iVue, iTemps, t) };
+}
+
+function etiquette(iVue, iTemps, t) {
+  if (scene.libelle) return scene.libelle(iVue, iTemps, t, nbVues);
+  const angle = Math.round(360 * ((scene.cadre?.arc ?? 1) * iVue / nbVues));
+  const a = scene.type === "3d" ? `${angle}°` : `vue ${iVue + 1}`;
+  return nbTemps > 1 ? `${a}  ·  t=${t.toFixed(2)}` : a;
+}
+
+/* ── Boucle principale ──────────────────────────────────────────────────── */
+marquer("rendu…");
+let n = 0;
+try {
+  for (let iT = 0; iT < nbTemps; iT++) {
+    for (let iV = 0; iV < nbVues; iV++) {
+      const { canvas, libelle } = await vignette(iV, iT);
+      const col = n % cols, lig = Math.floor(n / cols);
+      const x = MARGE + col * (LARG + MARGE);
+      const y = MARGE + lig * (HAUT + BANDEAU + MARGE);
+
+      planche.drawImage(canvas, x, y, LARG, HAUT);
+      planche.strokeStyle = "rgba(220,232,255,.10)";
+      planche.strokeRect(x + .5, y + .5, LARG - 1, HAUT - 1);
+      planche.fillStyle = "rgba(220,232,255,.55)";
+      planche.font = '11px "Geist Mono", ui-monospace, monospace';
+      planche.fillText(libelle, x + 2, y + HAUT + 14);
+
+      n++;
+      marquer(`rendu… ${n}/${total}`);
+      await new Promise(r => setTimeout(r, 0));   // laisse respirer l'onglet
+    }
+  }
+} catch (e) {
+  marquer("rendu interrompu", "rate");
+  dire("ERREUR : " + (e && e.stack || e));
+  throw e;
+}
+
+/* ── Verification : la planche n'est-elle pas entierement noire ? ───────── */
+(function verifier() {
+  const ech = planche.getImageData(0, 0, apercu.width, apercu.height).data;
+  let somme = 0, pas = 4 * 997;                 // echantillonnage clairseme
+  for (let i = 0; i < ech.length; i += pas) somme += ech[i] + ech[i+1] + ech[i+2];
+  const moy = somme / Math.ceil(ech.length / pas) / 3;
+  dire(`luminance moyenne : ${moy.toFixed(1)} / 255`);
+  if (moy < 2) dire("AVERTISSEMENT : planche quasi noire — la scene a-t-elle rendu ?");
+})();
+
+/* ── Ecriture ───────────────────────────────────────────────────────────── */
+const nom = (P.get("sortie") || idScene);
+marquer("ecriture…");
+const rep = await fetch("/ecrire", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ nom, image: apercu.toDataURL("image/png") })
+}).then(r => r.json());
+
+if (rep.erreur) { marquer("echec de l'ecriture", "rate"); dire(rep.erreur); }
+else {
+  dire(`ecrit : ${rep.chemin}  (${Math.round(rep.octets / 1024)} Ko)`);
+  marquer("FINI", "fini");
+}
+
+/* ── Video, en option ───────────────────────────────────────────────────── */
+if (VEUT_WEBM && scene.type) {
+  dire("video : capture en cours…");
+  try {
+    const cv = document.createElement("canvas");
+    cv.width = LARG; cv.height = HAUT;
+    const g2 = cv.getContext("2d");
+    const flux = cv.captureStream(30);
+    const morceaux = [];
+    const enr = new MediaRecorder(flux, { mimeType: "video/webm" });
+    enr.ondataavailable = e => e.data.size && morceaux.push(e.data);
+    const fini = new Promise(r => enr.onstop = r);
+    enr.start();
+
+    const images = 30 * (scene.duree || 2);
+    for (let i = 0; i < images; i++) {
+      const t = i / images;
+      if (scene.type === "3d") {
+        const m = await monter3d();
+        if (scene.animer) scene.animer(t, m.objets, THREE, m.s3);
+        placerCamera(m.cam, (i / images) * nbVues);
+        m.rendu.render(m.s3, m.cam);
+        g2.drawImage(toile, 0, 0);
+      } else {
+        g2.fillStyle = FOND; g2.fillRect(0, 0, LARG, HAUT);
+        scene.dessiner(g2, t, 0, LARG, HAUT, nbVues);
+      }
+      await new Promise(r => setTimeout(r, 1000 / 30));
+    }
+    enr.stop(); await fini;
+
+    const b64 = await new Promise(r => {
+      const fr = new FileReader();
+      fr.onload = () => r(fr.result);
+      fr.readAsDataURL(new Blob(morceaux, { type: "video/webm" }));
+    });
+    const rv = await fetch("/ecrire", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nom: nom, image: b64 })
+    }).then(r => r.json());
+    dire("video : " + (rv.chemin || rv.erreur));
+  } catch (e) {
+    dire("video : impossible — " + e);
+  }
+}
+</script>

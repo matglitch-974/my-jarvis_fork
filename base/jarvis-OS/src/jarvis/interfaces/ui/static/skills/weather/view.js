@@ -266,7 +266,7 @@
     band.innerHTML = data.hours.map(([hh, tv], i) => {
       const bh = 4 + (tv - mn + 1) / (mx - mn + 1) * 22;
       return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 0;${i ? 'border-left:1px solid var(--line-1,rgba(220,232,255,.06))' : ''}">
-        <div style="font-family:var(--mono,monospace);font-size:10px;color:var(--fg-3,rgba(220,232,255,.4));letter-spacing:.06em">${hh}</div>
+        <div style="font-family:var(--mono,monospace);font-size:10px;color:var(--fg-3,rgba(220,232,255,.4));letter-spacing:.06em">${String(hh).replace(/[<>&"']/g, '')}</div>
         <div style="font-family:var(--serif,'Geist');font-weight:300;font-size:20px;color:var(--fg-0,#DCE8FF);font-variant-numeric:tabular-nums">${Math.round(tv)}°</div>
         <div style="width:3px;height:${bh}px;border-radius:2px;background:var(--line-3,rgba(220,232,255,.16))"></div>
       </div>`;

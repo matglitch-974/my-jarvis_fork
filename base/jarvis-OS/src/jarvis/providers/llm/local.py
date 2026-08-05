@@ -24,6 +24,20 @@ def _strip_think(text: str) -> str:
     return _THINK_RE.sub("", text).lstrip()
 
 
+def _suffixe_partiel(texte: str, balise: str) -> int:
+    """Longueur du suffixe de ``texte`` qui pourrait etre le DEBUT de ``balise``.
+
+    Le flux Ollama arrive par paquets, et rien ne garantit qu'une balise tienne
+    dans un seul. Un fragment qui s'acheve sur ``<thi`` n'est pas du texte : il
+    faut le retenir jusqu'au paquet suivant, sinon il part a l'ecran.
+    """
+    maxi = min(len(texte), len(balise) - 1)
+    for n in range(maxi, 0, -1):
+        if texte.endswith(balise[:n]):
+            return n
+    return 0
+
+
 def _claude_tools_to_ollama(tools: list[dict]) -> list[dict]:
     """Convertit le schéma d'outils interne Jarvis (format Claude) vers le format Ollama/OpenAI.
 
@@ -128,15 +142,23 @@ class OllamaProvider(LLMProvider):
                             if in_think:
                                 end = think_buf.find("</think>")
                                 if end == -1:
-                                    think_buf = ""
+                                    # On jette, mais on garde une fermeture
+                                    # coupée par la frontière d'un paquet :
+                                    # sinon on ne sortirait jamais du think.
+                                    garde = _suffixe_partiel(think_buf, "</think>")
+                                    think_buf = think_buf[-garde:] if garde else ""
                                     break
                                 think_buf = think_buf[end + len("</think>") :]
                                 in_think = False
                             else:
                                 start = think_buf.find("<think>")
                                 if start == -1:
-                                    output += think_buf
-                                    think_buf = ""
+                                    # Idem a l'ouverture : un fragment finissant
+                                    # par « <thi » n'est pas du texte, c'est une
+                                    # balise a moitie arrivee.
+                                    garde = _suffixe_partiel(think_buf, "<think>")
+                                    output += think_buf[:-garde] if garde else think_buf
+                                    think_buf = think_buf[-garde:] if garde else ""
                                     break
                                 output += think_buf[:start]
                                 think_buf = think_buf[start + len("<think>") :]

@@ -497,26 +497,26 @@
         ? `<div class="audit-empty">Aucune étape d'audit enregistrée.</div>`
         : steps.map(s => `
           <div class="audit-step">
-            <div class="step-ts">${fmtDate(s.ts)}</div>
-            <div class="step-event">${s.event}</div>
-            <div class="step-detail">${s.detail || '—'}</div>
+            <div class="step-ts">${escHtml(fmtDate(s.ts))}</div>
+            <div class="step-event">${escHtml(s.event)}</div>
+            <div class="step-detail">${escHtml(s.detail || '—')}</div>
           </div>`).join('');
 
       const summaryHtml = r.result_summary
-        ? `<div class="run-summary-text">↳ ${r.result_summary}</div>`
+        ? `<div class="run-summary-text">↳ ${escHtml(r.result_summary)}</div>`
         : '';
 
       return `
         <div class="run-card" id="run-${i}">
           <div class="run-summary" onclick="toggleRun(${i})">
             <span class="run-expand">▶</span>
-            <span class="run-name">${r.routine_name}</span>
+            <span class="run-name">${escHtml(r.routine_name)}</span>
             ${statusBadge(r.status)}
             <div class="run-meta">
-              <span class="run-time">${fmtDate(r.started_at)}${dur ? ' · ' + dur : ''}</span>
-              ${cost ? `<span class="run-cost">${cost}</span>` : ''}
+              <span class="run-time">${escHtml(fmtDate(r.started_at))}${dur ? ' · ' + escHtml(dur) : ''}</span>
+              ${cost ? `<span class="run-cost">${escHtml(cost)}</span>` : ''}
             </div>
-            <span class="run-id">${r.id}</span>
+            <span class="run-id">${escHtml(r.id)}</span>
           </div>
           <div class="audit-log">
             <div class="audit-hd">Journal d'audit</div>
@@ -525,6 +525,15 @@
           </div>
         </div>`;
     }).join('');
+  }
+
+  // Le journal d'audit rapporte ce qu'une routine a lu et fait — donc du texte
+  // venu de pages web, de courriels ou du modèle. Il ne doit jamais atterrir
+  // brut dans du HTML.
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function toggleRun(i) {

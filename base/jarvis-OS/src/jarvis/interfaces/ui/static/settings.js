@@ -155,6 +155,213 @@
     return ctrl;
   }
 
+  /* ══════════════════════ Moteur de raisonnement ══════════════════════════
+     Une seule page pour brancher Jarvis sur n'importe quoi : l'abonnement
+     Claude, une API compatible OpenAI, Ollama en local, l'API Anthropic. Les
+     préréglages ne font que pré-remplir — toute URL et tout modèle restent
+     saisissables, y compris un fournisseur que personne n'a prévu.
+
+     Un seul bouton finalise : « Connexion ». Il essaie d'abord, il enregistre
+     ensuite, et il ne garde rien qui ne réponde pas. */
+  function _authFetch(url, opts) {
+    const h = Object.assign({ "Content-Type": "application/json" }, (opts && opts.headers) || {});
+    const auth = (window.Jarvis && Jarvis.authHeaders) ? Jarvis.authHeaders() : {};
+    return fetch(url, Object.assign({ credentials: "same-origin" }, opts, {
+      headers: Object.assign(h, auth),
+    }));
+  }
+
+  async function construireMoteur(hote) {
+    const r = await _authFetch("/api/engine");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const etat = await r.json();
+
+    let cfg = JSON.parse(JSON.stringify(etat.config));
+    const MOTEURS = etat.moteurs;
+
+    const corps = el("div");
+    const barre = el("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginTop: "10px" } });
+    const verdict = el("div", { class: "setting-note", style: { marginTop: "8px" } });
+
+    // — fabriques de champs, toutes reliées au même objet cfg —
+    function champ(libelle, sous, cle, opts) {
+      const o = opts || {};
+      const input = el("input", { class: "select-mono", style: { minWidth: o.large ? "320px" : "200px" } });
+      input.type = o.type || "text";
+      if (o.placeholder) input.placeholder = o.placeholder;
+      if (o.min !== undefined) input.min = o.min;
+      if (o.max !== undefined) input.max = o.max;
+      if (o.step !== undefined) input.step = o.step;
+      const lu = cle.split(".").reduce((a, k) => (a || {})[k], cfg);
+      input.value = lu === null || lu === undefined ? "" : lu;
+      input.addEventListener("input", () => {
+        let v = input.value;
+        if (o.type === "number") v = v === "" ? null : Number(v);
+        poser(cle, v);
+      });
+      corps.appendChild(settingRow(libelle, sous, input));
+      return input;
+    }
+
+    function bascule(libelle, sous, cle) {
+      const b = el("input");
+      b.type = "checkbox";
+      b.checked = Boolean(cle.split(".").reduce((a, k) => (a || {})[k], cfg));
+      b.addEventListener("change", () => poser(cle, b.checked));
+      corps.appendChild(settingRow(libelle, sous, b));
+      return b;
+    }
+
+    function poser(cle, valeur) {
+      const parts = cle.split(".");
+      let cible = cfg;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!cible[parts[i]] || typeof cible[parts[i]] !== "object") cible[parts[i]] = {};
+        cible = cible[parts[i]];
+      }
+      cible[parts[parts.length - 1]] = valeur;
+      verdict.textContent = "";
+    }
+
+    // — sélecteur de moteur —
+    const selMoteur = el("select", { class: "select-mono", style: { minWidth: "260px" } });
+    Object.entries(MOTEURS).forEach(([id, m]) => {
+      const o = el("option", { value: id, text: m.libelle });
+      if (id === cfg.moteur) o.selected = true;
+      selMoteur.appendChild(o);
+    });
+    selMoteur.addEventListener("change", () => { cfg.moteur = selMoteur.value; redessiner(); });
+    hote.appendChild(settingRow("Moteur", "qui répond quand vous parlez à Jarvis", selMoteur));
+
+    const detail = el("div", { class: "setting-note" });
+    hote.appendChild(detail);
+    hote.appendChild(corps);
+    hote.appendChild(barre);
+    hote.appendChild(verdict);
+
+    function redessiner() {
+      corps.innerHTML = "";
+      const m = MOTEURS[cfg.moteur] || {};
+      detail.textContent = m.detail || "";
+
+      // Préréglages : ils remplissent, ils n'imposent rien.
+      if (m.prereglages && m.prereglages.length) {
+        const rangee = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });
+        m.prereglages.forEach(p => {
+          const b = el("button", { class: "m-btn", text: p.nom });
+          b.addEventListener("click", () => {
+            cfg.url = p.url;
+            if (p.modele) cfg.modele = p.modele;
+            redessiner();
+          });
+          rangee.appendChild(b);
+        });
+        corps.appendChild(settingRow("Préréglages", "remplit l'adresse et le modèle — modifiable ensuite", rangee));
+      }
+
+      if (m.besoinUrl) champ("Adresse de base", "l'URL du fournisseur", "url", { large: true, placeholder: "http://127.0.0.1:11434" });
+      if (m.besoinCle) champ("Clé API", "conservée côté moteur, jamais renvoyée en clair", "cle", { large: true, type: "password" });
+
+      if (cfg.moteur !== "claude-sdk") {
+        const chModele = champ("Modèle", "nom exact chez le fournisseur", "modele", { large: true });
+        champ("Modèle de repli", "essayé si le principal échoue — laissez vide pour aucun", "modeleRepli", { large: true });
+
+        // Si le fournisseur sait se décrire, on propose ce qui existe vraiment
+        // plutôt que de faire deviner un nom.
+        _authFetch("/api/engine/models").then(r => r.json()).then(d => {
+          if (!d.modeles || !d.modeles.length) return;
+          const liste = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });
+          d.modeles.forEach(nom => {
+            const b = el("button", { class: "m-btn", text: nom });
+            b.addEventListener("click", () => { cfg.modele = nom; chModele.value = nom; });
+            liste.appendChild(b);
+          });
+          corps.appendChild(settingRow("Modèles détectés", "cliquez pour choisir", liste));
+        }).catch(() => {});
+      }
+
+      // — génération —
+      champ("Température", "vide = le fournisseur décide ; 0 à 2", "temperature", { type: "number", min: 0, max: 2, step: 0.1 });
+      champ("Top-p", "vide = le fournisseur décide ; 0 à 1", "topP", { type: "number", min: 0, max: 1, step: 0.05 });
+      champ("Jetons maximum", "longueur haute de la réponse", "maxTokens", { type: "number", min: 0, step: 256 });
+
+      // — comportement —
+      bascule("Réponse au fil de l'eau", "afficher le texte pendant qu'il s'écrit", "streaming");
+      champ("Tours d'outils maximum", "garde-fou contre les boucles sans fin", "maxToursOutils", { type: "number", min: 1, step: 1 });
+
+      // — délais —
+      champ("Délai de connexion", "en secondes", "delaiConnexion", { type: "number", min: 1, step: 1 });
+      champ("Délai de lecture", "en secondes — un modèle local qui démarre peut être long", "delaiLecture", { type: "number", min: 5, step: 10 });
+
+      // — propre à Ollama —
+      if (cfg.moteur === "ollama") {
+        bascule("Laisser le modèle raisonner à voix haute", "sinon les blocs de réflexion sont retirés", "ollama.raisonnement");
+        champ("Garder en mémoire", "durée avant déchargement — 5m, 1h, -1 pour toujours", "ollama.garderEnMemoire");
+        champ("Taille de contexte", "0 = celle du modèle", "ollama.tailleContexte", { type: "number", min: 0, step: 1024 });
+      }
+
+      // — propre à Claude —
+      if (cfg.moteur === "claude-sdk") {
+        champ("Jetons de réflexion", "0 pour couper la réflexion étendue", "claude.maxThinkingTokens", { type: "number", min: 0, step: 1024 });
+        champ("Détourner vers", "laissez vide pour rester sur l'abonnement — sinon toute passerelle parlant le protocole Anthropic", "claude.baseUrl", { large: true, placeholder: "http://127.0.0.1:4000" });
+        champ("Jeton de la passerelle", "seulement si la passerelle en exige un", "claude.jeton", { large: true, type: "password" });
+      }
+
+      corps.appendChild(el("div", {
+        class: "setting-note",
+        text: cfg.moteur === "claude-sdk"
+          ? "Les outils natifs de Claude Code restent coupés : seuls les outils Jarvis existent, et chacun repasse par la gouvernance."
+          : "Quel que soit le moteur, chaque outil décidé par le modèle repasse par la gouvernance Jarvis avant d'être exécuté.",
+      }));
+    }
+
+    // — un seul bouton : essaie, puis enregistre —
+    const btn = el("button", { class: "m-btn", text: "Connexion" });
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const avant = btn.textContent;
+      btn.textContent = "Essai…";
+      verdict.textContent = "";
+      try {
+        const essai = await (await _authFetch("/api/engine/test", { method: "POST", body: JSON.stringify(cfg) })).json();
+        if (!essai.ok) {
+          verdict.textContent = "Refusé : " + (essai.soucis ? essai.soucis.join(" ") : (essai.detail || "aucune réponse"));
+          verdict.style.color = "var(--red, #d66)";
+          return;
+        }
+        const enr = await _authFetch("/api/engine", { method: "PUT", body: JSON.stringify(cfg) });
+        if (!enr.ok) {
+          const err = await enr.json().catch(() => ({}));
+          verdict.textContent = "Non enregistré : " + (err.detail || enr.status);
+          verdict.style.color = "var(--red, #d66)";
+          return;
+        }
+        verdict.textContent = "Connecté, et enregistré. Effet immédiat.";
+        verdict.style.color = "var(--green, #6c6)";
+      } catch (e) {
+        verdict.textContent = "Échec : " + e.message;
+        verdict.style.color = "var(--red, #d66)";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = avant;
+      }
+    });
+
+    const btnRecharger = el("button", { class: "m-btn", text: "Annuler mes changements" });
+    btnRecharger.addEventListener("click", async () => {
+      const rr = await _authFetch("/api/engine");
+      cfg = JSON.parse(JSON.stringify((await rr.json()).config));
+      selMoteur.value = cfg.moteur;
+      redessiner();
+      verdict.textContent = "Réglages rechargés.";
+      verdict.style.color = "";
+    });
+
+    barre.appendChild(btn);
+    barre.appendChild(btnRecharger);
+    redessiner();
+  }
+
   async function getSettings() {
     if (_settings) return _settings;
     try { _settings = await J.api.get("/api/settings"); } catch (_) { _settings = {}; }
@@ -634,7 +841,83 @@
       ctrl.appendChild(vSelect); ctrl.appendChild(saveBtn);
       audioList.appendChild(settingRow("Voix ElevenLabs", "ELEVENLABS_VOICE_ID", ctrl));
     }
-    wrap.appendChild(ghostSec("Audio & voix", "TTS · STT · voix", null, audioList));
+    /* ── Lecture des réponses écrites ────────────────────────────────────
+       Réglages du navigateur, appliqués à la volée : rien à sauvegarder,
+       rien à envoyer au serveur. Rangés ici parce qu'ils touchent la voix. */
+    if (window.JarvisLecture) {
+      const L = window.JarvisLecture;
+      const lect = L.reglages();
+
+      const LIB_MODE = {
+        jamais:   "Jamais",
+        auto:     "Après une question dictée",
+        toujours: "Toujours",
+      };
+      const selMode = el("select", { class: "select-mono", style: { minWidth: "200px" } });
+      L.modes.forEach(m => {
+        const o = el("option", { value: m, text: LIB_MODE[m] || m });
+        if (m === lect.mode) o.selected = true;
+        selMode.appendChild(o);
+      });
+      selMode.addEventListener("change", () => L.regler({ mode: selMode.value }));
+      audioList.appendChild(settingRow(
+        "Lire les réponses à voix haute",
+        "s'applique au chat écrit — la voix, elle, répond toujours",
+        selMode));
+
+      function bascule(libelle, sous, cle) {
+        const b = el("input", { class: "select-mono" });
+        b.type = "checkbox";
+        b.checked = !!L.reglages()[cle];
+        b.addEventListener("change", () => L.regler({ [cle]: b.checked }));
+        audioList.appendChild(settingRow(libelle, sous, b));
+      }
+
+      function nombre(libelle, sous, cle, min, max, pas) {
+        const n = el("input", { class: "select-mono", style: { width: "110px" } });
+        n.type = "number"; n.min = min; n.max = max; n.step = pas;
+        n.value = L.reglages()[cle];
+        n.addEventListener("change", () => {
+          const v = parseFloat(n.value);
+          if (!isNaN(v)) L.regler({ [cle]: v });
+        });
+        audioList.appendChild(settingRow(libelle, sous, n));
+      }
+
+      bascule("Lire les blocs de code", "sinon Jarvis dit simplement « bloc de code »", "lireCode");
+      nombre("Longueur maximale", "caractères lus au plus ; 0 pour tout lire", "longueurMax", 0, 20000, 100);
+      bascule("Un clic coupe la lecture", "cliquer n'importe où interrompt la voix", "couperAuClic");
+      nombre("Vitesse de la voix de repli", "quand Piper est absent, 0,5 à 2", "vitesseRepli", 0.5, 2, 0.1);
+
+      const essai = el("button", { class: "m-btn", text: "Essayer" });
+      essai.addEventListener("click", () => {
+        if (L.enLecture()) { L.arreter(); essai.textContent = "Essayer"; return; }
+        essai.textContent = "Arrêter";
+        L.parler("Voici comment je lis vos réponses. Vous pouvez m'interrompre quand vous voulez.")
+         .finally(() => { essai.textContent = "Essayer"; });
+      });
+      audioList.appendChild(settingRow("Écouter un exemple", "avec les réglages actuels", essai));
+    }
+
+    wrap.appendChild(ghostSec("Audio & voix", "TTS · STT · voix · lecture", null, audioList));
+
+    // ── Moteur de raisonnement ────────────────────────────────────────────
+    // Tout ce qui décide de QUI répond : abonnement Claude, API compatible
+    // OpenAI, Ollama local, API Anthropic. Rien n'est figé — l'URL, le modèle,
+    // les délais, les en-têtes, tout se règle ici et prend effet sans
+    // redémarrage, parce que ces réglages vivent dans le sidecar.
+    try {
+      const moteurList = el("div");
+      await construireMoteur(moteurList);
+      wrap.appendChild(ghostSec(
+        "Moteur",
+        "quel modèle répond · abonnement, API ou local",
+        null,
+        moteurList
+      ));
+    } catch (e) {
+      console.warn("[Réglages] section Moteur indisponible", e);
+    }
 
     // Clés API — édition inline, sans popup navigateur
     const keyList = el("div");

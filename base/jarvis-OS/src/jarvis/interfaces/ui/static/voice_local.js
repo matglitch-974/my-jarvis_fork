@@ -205,6 +205,10 @@
       if (!text) { this._busy = false; orb("listening"); return; }
       say("user", text);
 
+      // Signale que ce tour vient de la voix — le mode "auto" de la lecture
+      // des réponses s'aligne dessus.
+      window.dispatchEvent(new CustomEvent("jarvis:tour-vocal"));
+
       var bubble = say("assistant", "", true);
       var sid = localStorage.getItem("jarvis_voice_session") || null;
       var resp = await fetch("/api/voice/generate", {

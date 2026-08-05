@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import platform
 
 from loguru import logger
@@ -14,6 +15,25 @@ from loguru import logger
 from jarvis.capabilities.skills.app_checker import check_all_apps
 from jarvis.capabilities.skills.base import PresetSkill, PresetStep
 from jarvis.kernel.notifications import broadcast_audio
+
+
+def _powershell_litteral(valeur: str) -> str:
+    """Chaîne PowerShell entre apostrophes simples : aucune interpolation.
+
+    Seule l'apostrophe doit être doublée. Ni ``$``, ni les accents graves, ni
+    ``;`` n'ont de sens particulier à l'intérieur.
+    """
+    return "'" + str(valeur or "").replace("'", "''") + "'"
+
+
+def _applescript_litteral(valeur: str) -> str:
+    """Chaîne AppleScript entre guillemets doubles.
+
+    L'antislash doit être échappé AVANT le guillemet, sinon on échapperait
+    l'antislash que l'on vient d'introduire.
+    """
+    echappe = str(valeur or "").replace("\\", "\\\\").replace('"', '\\"')
+    return '"' + echappe + '"'
 
 
 class PresetExecutor:
@@ -213,24 +233,54 @@ class PresetExecutor:
         return {"status": "done", "message": f"Attente {seconds}s"}
 
     async def _exec_notify(self, step: PresetStep) -> dict:
+        """Affiche une notification système.
+
+        Le titre et le corps viennent d'un preset — donc potentiellement d'un
+        skill tiers ou d'un texte produit par le modèle. Ils ne sont JAMAIS
+        collés dans une ligne de commande : sur macOS le script AppleScript est
+        passé en argument séparé, sur Windows le script PowerShell part encodé.
+        Aucun shell n'intervient, donc ni ``;`` ni ``&`` ni ``$()`` ne peuvent
+        s'échapper du texte.
+        """
         cmd = step.get_command()
 
-        if not cmd:
-            system = platform.system().lower()
-            if system == "darwin":
-                title = step.title.replace('"', '\\"')
-                body = step.body.replace('"', '\\"')
-                cmd = f'osascript -e \'display notification "{body}" with title "{title}"' + "'"
-            elif system == "windows":
-                cmd = (
-                    f'powershell -c "Add-Type -AssemblyName System.Windows.Forms; '
-                    f"[System.Windows.Forms.MessageBox]::Show('{step.body}','{step.title}')\""
-                )
-            else:
-                return {"status": "skipped", "message": "Notifications non supportées sur Linux"}
+        if cmd:
+            # Commande explicite du preset : c'est la voie "cli", assumée telle
+            # quelle, et soumise à la même gouvernance que les autres outils.
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=10)
+            return {"status": "done", "message": f"Notification : {step.title}"}
 
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        system = platform.system().lower()
+
+        if system == "darwin":
+            script = (
+                f"display notification {_applescript_litteral(step.body)} "
+                f"with title {_applescript_litteral(step.title)}"
+            )
+            argv = ["osascript", "-e", script]
+        elif system == "windows":
+            script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "[System.Windows.Forms.MessageBox]::Show("
+                f"{_powershell_litteral(step.body)},{_powershell_litteral(step.title)})"
+            )
+            argv = [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                base64.b64encode(script.encode("utf-16-le")).decode("ascii"),
+            ]
+        else:
+            return {"status": "skipped", "message": "Notifications non supportées sur Linux"}
+
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

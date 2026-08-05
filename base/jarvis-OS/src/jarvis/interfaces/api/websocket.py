@@ -12,6 +12,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
 from jarvis.capabilities.tools.spotify import SpotifyTool
+from jarvis.engine.auth import verify_ws_token, ws_subprotocol
 from jarvis.engine.background.notifications import NotificationQueue, ProactiveQueue
 from jarvis.engine.background.worker import BackgroundTask, BackgroundWorker
 from jarvis.engine.gateway import Gateway, _fallback
@@ -37,9 +38,15 @@ _presence_last_notified: dict[bool, float] = {True: 0.0, False: 0.0}
 async def websocket_logs(websocket: WebSocket) -> None:
     """Streams the in-memory log ring buffer to the Système › Logs panel.
     Sends the last 50 entries on connect, then pushes new lines as they arrive.
+
+    Les journaux contiennent des chemins, des noms de sessions et parfois des
+    extraits de requêtes : la porte est la même que pour le reste de l'API.
     """
 
-    await websocket.accept()
+    if not await verify_ws_token(websocket):
+        return
+
+    await websocket.accept(subprotocol=ws_subprotocol(websocket))
     last_sent = 0
     try:
         # Send buffered lines on connect
@@ -189,8 +196,15 @@ async def websocket_chat(websocket: WebSocket) -> None:
     Pour la route BG : l'ack est streamé token par token, "done" est envoyé dès que
     l'ack est terminé, et la tâche background est soumise APRÈS — elle ne bloque jamais
     le client.
+
+    Ce canal ouvre la passerelle LLM et, derrière elle, tous les outils. Il est
+    donc authentifié comme le reste de l'API : sans cette porte, activer
+    API_AUTH_ENABLED ne protégeait rien, il suffisait de parler en WebSocket.
     """
-    await websocket.accept()
+    if not await verify_ws_token(websocket):
+        return
+
+    await websocket.accept(subprotocol=ws_subprotocol(websocket))
     logger.info("WebSocket connection opened")
 
     gateway: Gateway = websocket.app.state.gateway
@@ -310,17 +324,24 @@ async def websocket_chat(websocket: WebSocket) -> None:
                     logger.info("Project task launched", session_id=str(session.id))
 
             # ── mémoire post-done, hors chemin critique ───────────────────────
-            # sleep(2) laisse la connexion HTTP principale se libérer avant que
-            # le background_llm parte — évite la contention sur le client Anthropic.
-            await asyncio.sleep(2)
-            asyncio.create_task(
-                consolidation._run_safe(user_message=message, assistant_message=full),
-                name="consolidation",
-            )
-            asyncio.create_task(
-                auto_dream._run_micro_safe(user_message=message, assistant_message=full),
-                name="autodream-micro",
-            )
+            # Le délai laisse la connexion HTTP principale se libérer avant que
+            # le background_llm parte — évite la contention sur le client
+            # Anthropic. Il doit vivre DANS la tâche différée : attendre ici
+            # bloquerait la boucle de réception, et un message envoyé dans la
+            # foulée resterait deux secondes sans être lu.
+            async def _memoire_differee(
+                msg: str = message, rep: str = full, delai: float = 2.0
+            ) -> None:
+                await asyncio.sleep(delai)
+                await consolidation._run_safe(user_message=msg, assistant_message=rep)
+
+            async def _reve_differe(msg: str = message, rep: str = full, delai: float = 2.0) -> None:
+                await asyncio.sleep(delai)
+                await auto_dream._run_micro_safe(user_message=msg, assistant_message=rep)
+
+            asyncio.create_task(_memoire_differee(), name="consolidation")
+            asyncio.create_task(_reve_differe(), name="autodream-micro")
+
             _user_model = getattr(websocket.app.state, "user_model", None)
             if _user_model is not None:
                 _user_model.fire(user_message=message, assistant_message=full)

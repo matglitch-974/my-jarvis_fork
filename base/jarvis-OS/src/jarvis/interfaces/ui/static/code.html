@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr" data-mode="dark" data-densite="compacte" data-matiere="flottant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Code — My Jarvis</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="code.css">
+<script>
+  /* Avant le premier paint : on repose les réglages, sinon la page clignote.
+     Même intention que getStateSync côté Claude Desktop. */
+  try {
+    const r = JSON.parse(localStorage.getItem("jarvis_code_apparence") || "{}");
+    const d = document.documentElement;
+    if (r.mode)    d.dataset.mode    = r.mode;
+    if (r.densite) d.dataset.densite = r.densite;
+    if (r.matiere) d.dataset.matiere = r.matiere;
+    if (r.nav)     d.dataset.nav     = r.nav;
+  } catch (e) {}
+</script>
+</head>
+<body>
+<div id="app">
+  <header class="titre">
+    <h1 id="titre-nom">Code</h1>
+    <span class="sous" id="titre-sous"></span>
+    <div class="pousse">
+      <button class="btn btn--fantome" id="b-apparence" aria-expanded="false">Apparence</button>
+    </div>
+  </header>
+
+  <nav class="nav" id="nav"></nav>
+  <main class="vue" id="vue"></main>
+
+  <footer class="etat" id="etat"></footer>
+</div>
+
+<section class="volet flottant" id="volet-apparence" hidden aria-label="Apparence"></section>
+
+<script src="code.js"></script>
+</body>
+</html>
